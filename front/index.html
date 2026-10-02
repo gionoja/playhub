@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PlayHub</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<div id="toast"></div>
+
+<!-- ================= AUTH ================= -->
+
+<section id="authScreen" class="auth-screen">
+    <div class="auth-card">
+        <div class="logo">PLAY<span>HUB</span></div>
+        <p class="auth-subtitle">Social gaming. Real connections.</p>
+
+        <div id="loginForm">
+            <h2>Welcome back</h2>
+
+            <input type="email" id="loginEmail" placeholder="Email">
+            <input type="password" id="loginPassword" placeholder="Password">
+
+            <button class="primary-btn" onclick="login()">Login</button>
+
+            <p class="switch-text">
+                Don't have an account?
+                <button onclick="showSignup()">Create account</button>
+            </p>
+        </div>
+
+        <div id="signupForm" class="hidden">
+            <h2>Create account</h2>
+
+            <input type="text" id="signupName" placeholder="Full name">
+            <input type="email" id="signupEmail" placeholder="Email">
+            <input type="password" id="signupPassword" placeholder="Password">
+
+            <button class="primary-btn" onclick="signup()">Create account</button>
+
+            <p class="switch-text">
+                Already have an account?
+                <button onclick="showLogin()">Login</button>
+            </p>
+        </div>
+    </div>
+</section>
+
+
+<!-- ================= APP ================= -->
+
+<section id="appScreen" class="hidden">
+
+    <!-- TOP BAR -->
+    <header class="topbar">
+        <div class="logo">PLAY<span>HUB</span></div>
+
+        <div class="top-actions">
+            <button onclick="openNotifications()" class="icon-btn">
+                🔔
+            </button>
+
+            <button onclick="showScreen('profile')" class="profile-mini">
+                <div class="avatar">U</div>
+            </button>
+        </div>
+    </header>
+
+
+    <!-- ================= HOME ================= -->
+
+    <main id="homeScreen" class="screen active">
+
+        <section class="welcome-section">
+            <div>
+                <p class="small-text">Welcome back</p>
+                <h1>Your Feed</h1>
+            </div>
+
+            <div class="balance-mini" onclick="showScreen('balance')">
+                <span>Balance</span>
+                <strong id="homeBalance">₦0.00</strong>
+            </div>
+        </section>
+
+
+        <!-- STORIES -->
+
+        <section class="stories-section">
+            <div class="section-heading">
+                <h3>Stories</h3>
+            </div>
+
+            <div class="stories">
+
+                <button class="story add-story" onclick="createStory()">
+                    <div class="story-circle">+</div>
+                    <span>Your story</span>
+                </button>
+
+                <!-- Real stories will be inserted here later -->
+
+            </div>
+        </section>
+
+
+        <!-- CREATE POST -->
+
+        <section class="create-post">
+            <div class="avatar">U</div>
+
+            <button class="post-input" onclick="openPostModal()">
+                What's on your mind?
+            </button>
+
+            <button class="photo-post-btn" onclick="openPostModal(true)">
+                📷
+            </button>
+        </section>
+
+
+        <!-- EMPTY FEED -->
+
+        <section id="feedContainer" class="feed-container">
+
+            <div class="empty-state">
+                <div class="empty-icon">📝</div>
+                <h3>Your feed is empty</h3>
+                <p>
+                    Posts from people you connect with will
+                    appear here.
+                </p>
+
+                <button class="primary-btn small-btn" onclick="openPostModal()">
+                    Create your first post
+                </button>
+            </div>
+
+        </section>
+
+    </main>
+
+
+    <!-- ================= GAMES ================= -->
+
+    <main id="gamesScreen" class="screen">
+
+        <section class="page-header">
+            <p class="small-text">Play against others</p>
+            <h1>Games</h1>
+        </section>
+
+
+        <section class="games-grid">
+
+            <article class="game-card ludo">
+                <div class="game-icon">🎲</div>
+
+                <div class="game-info">
+                    <h2>Ludo</h2>
+                    <p>Challenge another player.</p>
+                </div>
+
+                <button onclick="openGame('Ludo')">
+                    Play
+                </button>
+            </article>
+
+
+            <article class="game-card snooker">
+                <div class="game-icon">🎱</div>
+
+                <div class="game-info">
+                    <h2>Snooker</h2>
+                    <p>Compete in a one-on-one match.</p>
+                </div>
+
+                <button onclick="openGame('Snooker')">
+                    Play
+                </button>
+            </article>
+
+        </section>
+
+
+        <section class="matches-section">
+
+            <div class="section-heading">
+                <h3>Available matches</h3>
+            </div>
+
+            <div class="empty-state compact">
+                <div class="empty-icon">🎮</div>
+                <h3>No matches available</h3>
+                <p>
+                    Open a game to create a challenge.
+                </p>
+            </div>
+
+        </section>
+
+    </main>
+
+
+    <!-- ================= BALANCE ================= -->
+
+    <main id="balanceScreen" class="screen">
+
+        <section class="page-header">
+            <p class="small-text">Wallet</p>
+            <h1>Balance</h1>
+        </section>
+
+
+        <section class="balance-card">
+
+            <p>Available balance</p>
+
+            <h2 id="balanceAmount">₦0.00</h2>
+
+            <div class="balance-actions">
+                <button onclick="openDepositModal()">
+                    + Deposit
+                </button>
+
+                <button onclick="openWithdrawModal()">
+                    Withdraw
+                </button>
+            </div>
+
+        </section>
+
+
+        <section class="transactions-section">
+
+            <div class="section-heading">
+                <h3>Transaction history</h3>
+            </div>
+
+            <div id="transactionsContainer">
+
+                <div class="empty-state compact">
+                    <div class="empty-icon">💳</div>
+                    <h3>No transactions yet</h3>
+                    <p>
+                        Your deposits and withdrawals will
+                        appear here.
+                    </p>
+                </div>
+
+            </div>
+
+        </section>
+
+    </main>
+
+
+    <!-- ================= MESSAGES ================= -->
+
+    <main id="messagesScreen" class="screen">
+
+        <section class="page-header">
+            <p class="small-text">Stay connected</p>
+            <h1>Messages</h1>
+        </section>
+
+        <div id="messageList">
+
+            <div class="empty-state">
+                <div class="empty-icon">💬</div>
+                <h3>No conversations</h3>
+                <p>
+                    Your conversations will appear here.
+                </p>
+            </div>
+
+        </div>
+
+    </main>
+
+
+    <!-- ================= PROFILE ================= -->
+
+    <main id="profileScreen" class="screen">
+
+        <section class="profile-header">
+
+            <div class="profile-photo-container">
+
+                <div id="profileAvatar" class="profile-avatar">
+                    U
+                </div>
+
+                <button
+                    class="photo-edit-btn"
+                    onclick="changeProfilePhoto()">
+                    📷
+                </button>
+
+            </div>
+
+            <h2 id="profileName">User</h2>
+            <p id="profileEmail">user@example.com</p>
+
+            <button
+                class="secondary-btn"
+                onclick="openEditProfile()">
+                Edit profile
+            </button>
+
+        </section>
+
+
+        <section class="settings-list">
+
+            <div class="settings-group">
+
+                <p class="settings-title">
+                    Account
+                </p>
+
+                <button onclick="changeName()">
+                    <span>✏️</span>
+                    <div>
+                        <strong>Change name</strong>
+                        <small>Update your display name</small>
+                    </div>
+                    <span>›</span>
+                </button>
+
+
+                <button onclick="changePassword()">
+                    <span>🔐</span>
+                    <div>
+                        <strong>Change password</strong>
+                        <small>Keep your account secure</small>
+                    </div>
+                    <span>›</span>
+                </button>
+
+
+                <button onclick="changeProfilePhoto()">
+                    <span>🖼️</span>
+                    <div>
+                        <strong>Profile photo</strong>
+                        <small>Change your profile picture</small>
+                    </div>
+                    <span>›</span>
+                </button>
+
+            </div>
+
+
+            <div class="settings-group">
+
+                <p class="settings-title">
+                    Preferences
+                </p>
+
+                <button onclick="toggleDarkMode()">
+                    <span>🌙</span>
+
+                    <div>
+                        <strong>Dark mode</strong>
+                        <small id="themeText">
+                            Use dark appearance
+                        </small>
+                    </div>
+
+                    <label class="switch">
+                        <input type="checkbox" id="darkModeToggle">
+                        <span class="slider"></span>
+                    </label>
+
+                </button>
+
+
+                <button onclick="openNotifications()">
+                    <span>🔔</span>
+
+                    <div>
+                        <strong>Notifications</strong>
+                        <small>Manage notifications</small>
+                    </div>
+
+                    <span>›</span>
+                </button>
+
+            </div>
+
+
+            <div class="settings-group">
+
+                <p class="settings-title">
+                    Security & Privacy
+                </p>
+
+                <button onclick="showToast('Privacy settings coming soon')">
+                    <span>🛡️</span>
+
+                    <div>
+                        <strong>Privacy</strong>
+                        <small>Control who can interact with you</small>
+                    </div>
+
+                    <span>›</span>
+                </button>
+
+
+                <button onclick="showToast('Security settings coming soon')">
+                    <span>🔒</span>
+
+                    <div>
+                        <strong>Security</strong>
+                        <small>Manage account security</small>
+                    </div>
+
+                    <span>›</span>
+                </button>
+
+            </div>
+
+
+            <button class="logout-btn" onclick="logout()">
+                Log out
+            </button>
+
+        </section>
+
+    </main>
+
+
+    <!-- ================= BOTTOM NAV ================= -->
+
+    <nav class="bottom-nav">
+
+        <button
+            class="nav-item active"
+            data-screen="home"
+            onclick="showScreen('home')">
+
+            <span>⌂</span>
+            <small>Home</small>
+
+        </button>
+
+
+        <button
+            class="nav-item"
+            data-screen="games"
+            onclick="showScreen('games')">
+
+            <span>🎮</span>
+            <small>Games</small>
+
+        </button>
+
+
+        <button
+            class="nav-item"
+            data-screen="balance"
+            onclick="showScreen('balance')">
+
+            <span>💰</span>
+            <small>Balance</small>
+
+        </button>
+
+
+        <button
+            class="nav-item"
+            data-screen="messages"
+            onclick="showScreen('messages')">
+
+            <span>💬</span>
+            <small>Messages</small>
+
+        </button>
+
+
+        <button
+            class="nav-item"
+            data-screen="profile"
+            onclick="showScreen('profile')">
+
+            <span>👤</span>
+            <small>Profile</small>
+
+        </button>
+
+    </nav>
+
+</section>
+
+
+<!-- ================= CREATE POST MODAL ================= -->
+
+<div id="postModal" class="modal hidden">
+
+    <div class="modal-content">
+
+        <div class="modal-header">
+            <h2>Create post</h2>
+
+            <button onclick="closeModal('postModal')">
+                ×
+            </button>
+        </div>
+
+
+        <textarea
+            id="postText"
+            placeholder="What's on your mind?">
+        </textarea>
+
+
+        <div id="imagePreview" class="image-preview hidden">
+            <img id="previewImage" src="" alt="Preview">
+
+            <button onclick="removeSelectedImage()">
+                Remove photo
+            </button>
+        </div>
+
+
+        <div class="post-tools">
+
+            <label class="upload-btn">
+                📷 Add photo
+                <input
+                    type="file"
+                    id="postImage"
+                    accept="image/*"
+                    onchange="previewPostImage(event)">
+            </label>
+
+        </div>
+
+
+        <button
+            class="primary-btn"
+            onclick="createPost()">
+
+            Post
+
+        </button>
+
+    </div>
+
+</div>
+
+
+<!-- ================= COMMENT MODAL ================= -->
+
+<div id="commentModal" class="modal hidden">
+
+    <div class="modal-content">
+
+        <div class="modal-header">
+            <h2>Comments</h2>
+
+            <button onclick="closeModal('commentModal')">
+                ×
+            </button>
+        </div>
+
+
+        <div id="commentsContainer">
+        </div>
+
+
+        <div class="comment-input-area">
+
+            <input
+                type="text"
+                id="commentInput"
+                placeholder="Write a comment...">
+
+            <button onclick="addComment()">
+                Send
+            </button>
+
+        </div>
+
+    </div>
+
+</div>
+
+
+<!-- ================= GAME MODAL ================= -->
+
+<div id="gameModal" class="modal hidden">
+
+    <div class="modal-content">
+
+        <div class="modal-header">
+
+            <h2 id="gameModalTitle">
+                Game
+            </h2>
+
+            <button onclick="closeModal('gameModal')">
+                ×
+            </button>
+
+        </div>
+
+        <div class="game-modal-body">
+
+            <div class="large-game-icon">
+                🎮
+            </div>
+
+            <h3 id="gameMessage">
+                Create a challenge
+            </h3>
+
+            <p>
+                You will need sufficient balance before
+                starting a paid match.
+            </p>
+
+            <button
+                class="primary-btn"
+                onclick="showToast('Game challenge system will connect to the backend')">
+
+                Create challenge
+
+            </button>
+
+        </div>
+
+    </div>
+
+</div>
+
+
+<!-- ================= DEPOSIT MODAL ================= -->
+
+<div id="depositModal" class="modal hidden">
+
+    <div class="modal-content">
+
+        <div class="modal-header">
+
+            <h2>Deposit</h2>
+
+            <button onclick="closeModal('depositModal')">
+                ×
+            </button>
+
+        </div>
+
+
+        <label>Amount</label>
+
+        <input
+            type="number"
+            id="depositAmount"
+            placeholder="Enter amount">
+
+
+        <button
+            class="primary-btn"
+            onclick="deposit()">
+
+            Continue
+
+        </button>
+
+    </div>
+
+</div>
+
+
+<!-- ================= WITHDRAW MODAL ================= -->
+
+<div id="withdrawModal" class="modal hidden">
+
+    <div class="modal-content">
+
+        <div class="modal-header">
+
+            <h2>Withdraw</h2>
+
+            <button onclick="closeModal('withdrawModal')">
+                ×
+            </button>
+
+        </div>
+
+
+        <label>Amount</label>
+
+        <input
+            type="number"
+            id="withdrawAmount"
+            placeholder="Enter amount">
+
+
+        <button
+            class="primary-btn"
+            onclick="withdraw()">
+
+            Continue
+
+        </button>
+
+    </div>
+
+</div>
+
+
+<!-- ================= EDIT NAME MODAL ================= -->
+
+<div id="nameModal" class="modal hidden">
+
+    <div class="modal-content">
+
+        <div class="modal-header">
+
+            <h2>Change name</h2>
+
+            <button onclick="closeModal('nameModal')">
+                ×
+            </button>
+
+        </div>
+
+
+        <input
+            type="text"
+            id="newName"
+            placeholder="Enter new name">
+
+
+        <button
+            class="primary-btn"
+            onclick="saveName()">
+
+            Save
+
+        </button>
+
+    </div>
+
+</div>
+
+
+<!-- ================= PASSWORD MODAL ================= -->
+
+<div id="passwordModal" class="modal hidden">
+
+    <div class="modal-content">
+
+        <div class="modal-header">
+
+            <h2>Change password</h2>
+
+            <button onclick="closeModal('passwordModal')">
+                ×
+            </button>
+
+        </div>
+
+
+        <input
+            type="password"
+            placeholder="Current password">
+
+
+        <input
+            type="password"
+            placeholder="New password">
+
+
+        <input
+            type="password"
+            placeholder="Confirm new password">
+
+
+        <button
+            class="primary-btn"
+            onclick="savePassword()">
+
+            Update password
+
+        </button>
+
+    </div>
+
+</div>
+
+
+<!-- ================= NOTIFICATION MODAL ================= -->
+
+<div id="notificationModal" class="modal hidden">
+
+    <div class="modal-content">
+
+        <div class="modal-header">
+
+            <h2>Notifications</h2>
+
+            <button onclick="closeModal('notificationModal')">
+                ×
+            </button>
+
+        </div>
+
+
+        <div class="empty-state compact">
+
+            <div class="empty-icon">
+                🔔
+            </div>
+
+            <h3>No notifications</h3>
+
+            <p>
+                Your notifications will appear here.
+            </p>
+
+        </div>
+
+    </div>
+
+</div>
+
+
+<script src="app.js"></script>
+
+</body>
+</html>
