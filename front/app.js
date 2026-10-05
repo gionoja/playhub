@@ -17,50 +17,150 @@ let currentUser = {
 
 /* ================= AUTH ================= */
 
+const API_URL = "http://127.0.0.1:5000";
+
+let verifyTimer = null;
+let verifyEmail = "";
+
+
+function hideAuthPanels() {
+    ["loginForm", "signupForm", "verifyPending", "verifyDone"].forEach(id => {
+        document.getElementById(id).classList.add("hidden");
+    });
+}
+
+
 function showLogin() {
+    stopVerifyPolling();
+    hideAuthPanels();
     document.getElementById("loginForm").classList.remove("hidden");
-    document.getElementById("signupForm").classList.add("hidden");
 }
 
 
 function showSignup() {
-    document.getElementById("loginForm").classList.add("hidden");
+    stopVerifyPolling();
+    hideAuthPanels();
     document.getElementById("signupForm").classList.remove("hidden");
 }
 
 
-function login() {
+async function login() {
 
-    const email = document.getElementById("loginEmail").value;
+    const email = document.getElementById("loginEmail").value.trim();
+    const password = document.getElementById("loginPassword").value;
 
-    if (!email) {
-        showToast("Enter your email");
+    if (!email || !password) {
+        showToast("Enter your email and password");
         return;
     }
 
-    currentUser.email = email;
+    try {
 
-    openApp();
-}
+        const response = await fetch(API_URL + "/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: email, password: password })
+        });
 
+        const data = await response.json();
 
-function signup() {
+        if (!response.ok) {
 
-    const name = document.getElementById("signupName").value;
-    const email = document.getElementById("signupEmail").value;
+            // Correct password, but the email link hasn't been tapped yet
+            if (data.code === "email_not_verified") {
+                showVerifyPending(email);
+                return;
+            }
 
-    if (!name || !email) {
-        showToast("Complete the required fields");
-        return;
+            showToast(data.message || "Login failed");
+            return;
+        }
+
+        currentUser.name = data.user.full_name;
+        currentUser.email = data.user.email;
+
+        document.getElementById("loginPassword").value = "";
+
+        openApp();
+
+    } catch (error) {
+
+        console.error(error);
+
+        showToast("Unable to connect to PLAYHUB server");
     }
-
-    currentUser.name = name;
-    currentUser.email = email;
-
-    updateProfile();
-
-    openApp();
 }
+
+
+/* ----- waiting for the email link to be tapped ----- */
+
+function showVerifyPending(email) {
+
+    verifyEmail = email;
+
+    document.getElementById("verifyEmailText").textContent = email;
+
+    hideAuthPanels();
+    document.getElementById("verifyPending").classList.remove("hidden");
+
+    stopVerifyPolling();
+    verifyTimer = setInterval(checkVerification, 3000);
+}
+
+
+function stopVerifyPolling() {
+
+    if (verifyTimer) {
+        clearInterval(verifyTimer);
+        verifyTimer = null;
+    }
+}
+
+
+async function checkVerification() {
+
+    if (!verifyEmail) return;
+
+    try {
+
+        const response = await fetch(
+            API_URL + "/verification-status?email=" + encodeURIComponent(verifyEmail)
+        );
+
+        const data = await response.json();
+
+        if (data.verified) {
+            stopVerifyPolling();
+            hideAuthPanels();
+            document.getElementById("verifyDone").classList.remove("hidden");
+        }
+
+    } catch (error) {
+        // Server unreachable for a moment: keep waiting and try again
+    }
+}
+
+
+function goToLoginAfterVerify() {
+
+    showLogin();
+
+    document.getElementById("loginEmail").value = verifyEmail;
+    document.getElementById("loginPassword").focus();
+}
+
+
+// Check right away when the person comes back to this tab after tapping the link
+document.addEventListener("visibilitychange", () => {
+
+    const waiting = !document
+        .getElementById("verifyPending")
+        .classList.contains("hidden");
+
+    if (!document.hidden && waiting) {
+        checkVerification();
+    }
+});
 
 
 function openApp() {
@@ -1000,7 +1100,7 @@ async function signup() {
     try {
 
         const response = await fetch(
-            "http://127.0.0.1:5000/signup",
+            API_URL + "/signup",
             {
                 method: "POST",
 
@@ -1028,23 +1128,12 @@ async function signup() {
         }
 
 
-        currentUser.name = name;
-        currentUser.email = email;
-
-        updateProfile();
-
-
-        showToast(
-            "Account created! Username: " + data.username
-        );
-
-
         document.getElementById("signupName").value = "";
         document.getElementById("signupEmail").value = "";
         document.getElementById("signupPassword").value = "";
 
 
-        showLogin();
+        showVerifyPending(email);
 
     } catch (error) {
 
