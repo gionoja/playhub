@@ -19,6 +19,7 @@ from database import db
 from models import User
 
 from email_service import mail, send_verification_email
+from admin import admin_bp
 
 load_dotenv()
 
@@ -38,6 +39,8 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 mail.init_app(app)
 
 db.init_app(app)
+
+app.register_blueprint(admin_bp)
 
 
 with app.app_context():
@@ -79,9 +82,14 @@ def signup():
     existing_user = User.query.filter_by(email=email).first()
 
     if existing_user:
-        return jsonify({
-            "message": "Email already exists"
-        }), 409
+        if existing_user.email_verified:
+            return jsonify({
+                "message": "Email already exists"
+            }), 409
+
+        # Earlier signup was never verified: replace it with this new one
+        db.session.delete(existing_user)
+        db.session.commit()
 
     username = generate_username(full_name)
 
