@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify
 
 from flask_cors import CORS
 
-from werkzeug.security import generate_password_hash
+from werkzeug.security import generate_password_hash, check_password_hash
 
 import secrets
 
@@ -20,6 +20,7 @@ from models import User
 
 from email_service import mail, send_verification_email
 from admin import admin_bp
+from verify_page import render_verify_page
 
 load_dotenv()
 
@@ -126,23 +127,23 @@ def verify_email():
     token = request.args.get("token")
 
     if not token:
-        return "Verification token is missing", 400
+        return render_verify_page("invalid")
 
     user = User.query.filter_by(
         verification_token=token
     ).first()
 
     if not user:
-        return "Invalid verification token", 400
+        return render_verify_page("invalid")
 
     if user.email_verified:
-        return "Email already verified"
+        return render_verify_page("already")
 
     if (
         not user.verification_token_expires
         or user.verification_token_expires < datetime.utcnow()
     ):
-        return "Verification link has expired", 400
+        return render_verify_page("expired")
 
     user.email_verified = True
     user.verification_token = None
@@ -150,36 +151,56 @@ def verify_email():
 
     db.session.commit()
 
-    return "Email verified successfully! You can now log in to PLAYHUB."
+    return render_verify_page("success")
 
-    username = generate_username(full_name)
 
-    password_hash = generate_password_hash(password)
+@app.route("/verification-status")
+def verification_status():
+    """The signup screen calls this every few seconds while it waits for the email link to be tapped."""
 
-    verification_token = secrets.token_urlsafe(32)
+    email = (request.args.get("email") or "").strip()
 
-    user = User(
-        full_name=full_name,
-        username=username,
-        email=email,
-        password_hash=password_hash,
-        verification_token=verification_token,
-        verification_token_expires=datetime.utcnow() + timedelta(minutes=30)
-    )
-
-    db.session.add(user)
-    db.session.commit()
-
-    send_verification_email(
-    app,
-    email,
-    verification_token
-)
+    user = User.query.filter_by(email=email).first()
 
     return jsonify({
-        "message": "Account created successfully. Check your email to verify your account.",
-        "username": username
-    }), 201
+        "verified": bool(user and user.email_verified)
+    })
+
+
+@app.route("/login", methods=["POST"])
+def login():
+
+    data = request.get_json(silent=True) or {}
+
+    email = (data.get("email") or "").strip()
+    password = data.get("password") or ""
+
+    if not email or not password:
+        return jsonify({
+            "message": "Email and password are required"
+        }), 400
+
+    user = User.query.filter_by(email=email).first()
+
+    if not user or not check_password_hash(user.password_hash, password):
+        return jsonify({
+            "message": "Invalid email or password"
+        }), 401
+
+    if not user.email_verified:
+        return jsonify({
+            "message": "Please verify your email before logging in. Check your inbox for the link.",
+            "code": "email_not_verified"
+        }), 403
+
+    return jsonify({
+        "message": "Login successful",
+        "user": {
+            "full_name": user.full_name,
+            "username": user.username,
+            "email": user.email
+        }
+    }), 200
 
 
 if __name__ == "__main__":
