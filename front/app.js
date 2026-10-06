@@ -19,6 +19,8 @@ let currentUser = {
 
 const API_URL = "http://127.0.0.1:5000";
 
+const TOKEN_KEY = "playhub_token";
+
 let verifyTimer = null;
 let verifyEmail = "";
 
@@ -76,8 +78,11 @@ async function login() {
             return;
         }
 
+        localStorage.setItem(TOKEN_KEY, data.token);
+
         currentUser.name = data.user.full_name;
         currentUser.email = data.user.email;
+        currentUser.username = data.user.username;
 
         document.getElementById("loginPassword").value = "";
 
@@ -88,6 +93,38 @@ async function login() {
         console.error(error);
 
         showToast("Unable to connect to PLAYHUB server");
+    }
+}
+
+
+// Keeps people logged in after a page refresh
+async function restoreSession() {
+
+    const token = localStorage.getItem(TOKEN_KEY);
+
+    if (!token) return;
+
+    try {
+
+        const response = await fetch(API_URL + "/me", {
+            headers: { "Authorization": "Bearer " + token }
+        });
+
+        if (!response.ok) {
+            localStorage.removeItem(TOKEN_KEY);
+            return;
+        }
+
+        const data = await response.json();
+
+        currentUser.name = data.full_name;
+        currentUser.email = data.email;
+        currentUser.username = data.username;
+
+        openApp();
+
+    } catch (error) {
+        // Server not reachable: stay on the login screen
     }
 }
 
@@ -172,10 +209,16 @@ function openApp() {
     updateBalance();
 
     updateProfile();
+
+    if (typeof onAppOpened === "function") onAppOpened();
 }
 
 
 function logout() {
+
+    localStorage.removeItem(TOKEN_KEY);
+
+    if (typeof onLoggedOut === "function") onLoggedOut();
 
     document.getElementById("appScreen").classList.add("hidden");
 
@@ -213,6 +256,11 @@ function showScreen(screenName) {
             item.classList.add("active");
         }
     });
+
+
+    if (screenName === "friends" && typeof loadFriendsScreen === "function") {
+        loadFriendsScreen();
+    }
 
 
     window.scrollTo(0, 0);
@@ -934,6 +982,14 @@ function updateProfile() {
     avatar.textContent =
         currentUser.name.charAt(0).toUpperCase();
 
+
+    const username = document.getElementById("profileUsername");
+
+    if (username) {
+        username.textContent =
+            currentUser.username ? "@" + currentUser.username : "";
+    }
+
 }
 
 
@@ -1016,6 +1072,8 @@ function openNotifications() {
 
     document.getElementById("notificationModal")
         .classList.remove("hidden");
+
+    if (typeof onNotificationsOpened === "function") onNotificationsOpened();
 
 }
 
@@ -1157,5 +1215,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     updateProfile();
 
+    restoreSession();
 
 });

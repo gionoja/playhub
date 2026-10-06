@@ -902,3 +902,366 @@ button {
         animation-duration: 2.4s;
     }
 }
+
+
+/* ================= FRIENDS / PROFILES ================= */
+
+.nav-item {
+    flex: 1;
+    width: auto;
+    max-width: 150px;
+    min-width: 0;
+}
+
+.nav-item span,
+.icon-btn {
+    position: relative;
+}
+
+.badge-dot {
+    position: absolute;
+    top: -2px;
+    right: -3px;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--danger);
+    border: 2px solid var(--card);
+    box-sizing: content-box;
+}
+
+.profile-username {
+    margin-top: 2px !important;
+    margin-bottom: 0 !important;
+}
+
+.search-box {
+    position: relative;
+    margin-bottom: 14px;
+}
+
+.search-box svg {
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--muted);
+    pointer-events: none;
+}
+
+.search-box input {
+    width: 100%;
+    padding: 14px 15px 14px 44px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--card);
+    color: var(--text);
+    outline: none;
+}
+
+.search-box input:focus {
+    border-color: var(--primary);
+}
+
+.segmented {
+    display: flex;
+    gap: 6px;
+    padding: 5px;
+    margin-bottom: 16px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+}
+
+.seg-btn {
+    flex: 1;
+    padding: 10px;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--muted);
+    font-weight: 700;
+}
+
+.seg-btn.active {
+    background: var(--primary);
+    color: white;
+}
+
+.count-pill {
+    display: inline-block;
+    min-width: 20px;
+    padding: 1px 6px;
+    margin-left: 4px;
+    border-radius: 10px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 12px;
+}
+
+.seg-btn.active .count-pill {
+    background: rgba(255, 255, 255, 0.25);
+    color: white;
+}
+
+.list-title {
+    margin: 18px 0 10px;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.people-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.person-row {
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    padding: 14px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    cursor: pointer;
+}
+
+.person-row:hover,
+.person-row:focus-visible {
+    border-color: var(--primary);
+    outline: none;
+}
+
+.person-avatar {
+    flex-shrink: 0;
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    background: var(--primary);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+}
+
+.person-avatar.large {
+    width: 84px;
+    height: 84px;
+    font-size: 30px;
+    margin: 0 auto 12px;
+}
+
+.person-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.person-info strong,
+.person-info small {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.person-info small {
+    color: var(--muted);
+    margin-top: 2px;
+}
+
+.person-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.pbtn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 14px;
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: 14px;
+    white-space: nowrap;
+}
+
+.pbtn.primary {
+    background: var(--primary);
+    color: white;
+}
+
+.pbtn.primary:hover {
+    background: var(--primary-dark);
+}
+
+.pbtn.ghost {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+}
+
+.pbtn.danger {
+    background: var(--danger);
+    color: white;
+}
+
+.pbtn:disabled {
+    opacity: 0.7;
+    cursor: default;
+}
+
+.pbtn:focus-visible,
+.friend-chip:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+.person-row.skeleton {
+    cursor: default;
+}
+
+.person-row.skeleton .person-avatar {
+    background: var(--border);
+}
+
+.skeleton-lines {
+    flex: 1;
+    height: 34px;
+    border-radius: 8px;
+    background: var(--border);
+    opacity: 0.6;
+    animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    50% {
+        opacity: 0.25;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .skeleton-lines {
+        animation: none;
+    }
+}
+
+.profile-top {
+    text-align: center;
+}
+
+.profile-top h2 {
+    margin-bottom: 2px;
+}
+
+.profile-handle,
+.profile-joined,
+.muted-line {
+    color: var(--muted);
+}
+
+.profile-bio {
+    margin-top: 10px;
+    line-height: 1.5;
+}
+
+.profile-joined {
+    margin-top: 6px;
+    font-size: 13px;
+}
+
+.profile-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin: 20px 0;
+}
+
+.stat-cell {
+    padding: 14px 8px;
+    text-align: center;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+}
+
+.stat-cell strong,
+.stat-cell small {
+    display: block;
+}
+
+.stat-cell strong {
+    font-size: 20px;
+}
+
+.stat-cell small {
+    margin-top: 2px;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.profile-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+}
+
+.confirm-text {
+    width: 100%;
+    text-align: center;
+    color: var(--muted);
+}
+
+.friend-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.friend-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 12px 5px 5px;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+}
+
+.friend-chip .person-avatar {
+    width: 28px;
+    height: 28px;
+    font-size: 13px;
+}
+
+.notice-item {
+    display: flex;
+    gap: 12px;
+    padding: 12px;
+    margin-bottom: 10px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    cursor: pointer;
+}
+
+.notice-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.notice-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+#userProfileBody .empty-state,
+#friendsContent .empty-state {
+    box-shadow: none;
+}

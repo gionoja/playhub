@@ -16,10 +16,12 @@ from flask_mail import Mail
 
 from database import db
 
-from models import User
+from models import User, Profile, delete_user_completely
 
 from email_service import mail, send_verification_email
 from admin import admin_bp
+from auth import create_token
+from social import social_bp
 from verify_page import render_verify_page
 
 load_dotenv()
@@ -37,11 +39,17 @@ app.config["MAIL_PASSWORD"] = os.getenv("MAIL_PASSWORD")
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///playhub.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
+# Signs login tokens. Set SECRET_KEY in .env so people stay logged in after a restart.
+app.config["SECRET_KEY"] = os.getenv("SECRET_KEY") or secrets.token_hex(32)
+if not os.getenv("SECRET_KEY"):
+    print("WARNING: SECRET_KEY is not set in .env. Everyone will be logged out whenever the server restarts.")
+
 mail.init_app(app)
 
 db.init_app(app)
 
 app.register_blueprint(admin_bp)
+app.register_blueprint(social_bp)
 
 
 with app.app_context():
@@ -89,7 +97,7 @@ def signup():
             }), 409
 
         # Earlier signup was never verified: replace it with this new one
-        db.session.delete(existing_user)
+        delete_user_completely(existing_user)
         db.session.commit()
 
     username = generate_username(full_name)
@@ -108,6 +116,10 @@ def signup():
     )
 
     db.session.add(user)
+    db.session.flush()
+
+    # Every account gets its profile the moment it is created
+    db.session.add(Profile(user_id=user.id))
     db.session.commit()
 
     send_verification_email(
@@ -195,6 +207,7 @@ def login():
 
     return jsonify({
         "message": "Login successful",
+        "token": create_token(user),
         "user": {
             "full_name": user.full_name,
             "username": user.username,
