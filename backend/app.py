@@ -22,6 +22,7 @@ from email_service import mail, send_verification_email
 from admin import admin_bp
 from auth import create_token
 from social import social_bp
+from messaging import messages_bp
 from verify_page import render_verify_page
 
 load_dotenv()
@@ -39,6 +40,9 @@ app.config["MAIL_PASSWORD"] = os.getenv("MAIL_PASSWORD")
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///playhub.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
+# Largest request accepted (an image up to 5 MB plus the form around it)
+app.config["MAX_CONTENT_LENGTH"] = 6 * 1024 * 1024
+
 # Signs login tokens. Set SECRET_KEY in .env so people stay logged in after a restart.
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY") or secrets.token_hex(32)
 if not os.getenv("SECRET_KEY"):
@@ -50,6 +54,7 @@ db.init_app(app)
 
 app.register_blueprint(admin_bp)
 app.register_blueprint(social_bp)
+app.register_blueprint(messages_bp)
 
 
 with app.app_context():
@@ -67,6 +72,13 @@ def generate_username(full_name):
         number += 1
 
     return username
+
+
+@app.errorhandler(413)
+def too_large(error):
+    return jsonify({
+        "message": "That file is too large. Images can be up to 5 MB."
+    }), 413
 
 
 @app.route("/")

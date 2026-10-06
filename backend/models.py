@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy import CheckConstraint, Index, UniqueConstraint, or_, text
 
 from database import db
+from uploads import delete_upload_files
 
 
 class User(db.Model):
@@ -131,6 +132,55 @@ class Friendship(db.Model):
     )
 
 
+class Conversation(db.Model):
+    """A private chat between two users, stored once (smaller user id first).
+    It is created when the first message is sent."""
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    user_low_id = db.Column(
+        db.Integer, db.ForeignKey("user.id"), nullable=False, index=True
+    )
+    user_high_id = db.Column(
+        db.Integer, db.ForeignKey("user.id"), nullable=False, index=True
+    )
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_message_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    __table_args__ = (
+        UniqueConstraint("user_low_id", "user_high_id", name="uq_conversation_pair"),
+        CheckConstraint("user_low_id < user_high_id", name="ck_conversation_order"),
+    )
+
+
+class Message(db.Model):
+    """
+    message_type: TEXT | IMAGE | GAME_CHALLENGE | GAME_RESULT | SYSTEM
+    Images are stored as files; only the generated file name lives here.
+    """
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    conversation_id = db.Column(
+        db.Integer, db.ForeignKey("conversation.id"), nullable=False, index=True
+    )
+    sender_id = db.Column(
+        db.Integer, db.ForeignKey("user.id"), nullable=False
+    )
+
+    message_type = db.Column(db.String(20), nullable=False, default="TEXT")
+
+    body = db.Column(db.String(2000), nullable=True)
+    image_filename = db.Column(db.String(64), nullable=True, index=True)
+
+    # Reserved for game challenge cards (added with game challenges)
+    game_challenge_id = db.Column(db.Integer, nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    read_at = db.Column(db.DateTime, nullable=True)
+
+
 def delete_user_completely(user):
     """Delete a user together with everything that points at them.
     The caller commits."""
@@ -144,6 +194,27 @@ def delete_user_completely(user):
     Friendship.query.filter(
         or_(Friendship.user_low_id == uid, Friendship.user_high_id == uid)
     ).delete(synchronize_session=False)
+
+    conversation_ids = [
+        c.id for c in Conversation.query.filter(
+            or_(Conversation.user_low_id == uid, Conversation.user_high_id == uid)
+        ).all()
+    ]
+
+    if conversation_ids:
+        files = [
+            m.image_filename for m in Message.query.filter(
+                Message.conversation_id.in_(conversation_ids),
+                Message.image_filename.isnot(None),
+            ).all()
+        ]
+        Message.query.filter(
+            Message.conversation_id.in_(conversation_ids)
+        ).delete(synchronize_session=False)
+        Conversation.query.filter(
+            Conversation.id.in_(conversation_ids)
+        ).delete(synchronize_session=False)
+        delete_upload_files(files)
 
     Profile.query.filter_by(user_id=uid).delete(synchronize_session=False)
 
