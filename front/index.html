@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PlayHub</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=4">
 </head>
 
 <body>
@@ -298,14 +298,19 @@
 
     <main id="messagesScreen" class="screen">
 
-        <section class="page-header">
-            <p class="small-text">Stay connected</p>
-            <h1>Messages</h1>
+        <section class="page-header with-action">
+            <div>
+                <p class="small-text">Stay connected</p>
+                <h1>Messages</h1>
+            </div>
+            <button class="pbtn primary" onclick="openNewMessage()"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v6"/><path d="M9 10h6"/></svg> New message</button>
         </section>
 
         <div id="messageList">
 
-            <div class="empty-state">
+            <div id="conversationList"></div>
+
+            <div id="messagesEmpty" class="empty-state">
                 <div class="empty-icon"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg></div>
                 <h3>No conversations</h3>
                 <p>
@@ -555,7 +560,7 @@
             data-screen="messages"
             onclick="showScreen('messages')">
 
-            <span><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg></span>
+            <span><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg><i id="navMessagesBadge" class="badge-dot hidden"></i></span>
             <small>Messages</small>
 
         </button>
@@ -913,8 +918,79 @@
 </div>
 
 
-<script src="app.js"></script>
-<script src="social.js"></script>
+<div id="newChatModal" class="modal hidden">
+
+    <div class="modal-content">
+
+        <div class="modal-header">
+
+            <h2>New message</h2>
+
+            <button onclick="closeModal('newChatModal')" aria-label="Close"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+
+        </div>
+
+        <div id="newChatList"></div>
+
+    </div>
+
+</div>
+
+
+<div id="chatView" class="chat-view hidden" role="dialog" aria-label="Conversation">
+
+    <div class="chat-panel">
+
+        <header class="chat-header">
+
+            <button class="chat-icon-btn" onclick="closeChat()" aria-label="Back to messages"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg></button>
+
+            <div id="chatAvatar" class="person-avatar"></div>
+
+            <div class="chat-title">
+                <strong id="chatName"></strong>
+                <small id="chatStatus"></small>
+            </div>
+
+        </header>
+
+        <div id="chatMessages" class="chat-messages" aria-live="polite"></div>
+
+        <div id="chatImagePreview" class="chat-image-preview hidden">
+            <img id="chatPreviewImg" alt="Selected image">
+            <button class="chat-icon-btn" onclick="clearPendingImage()" aria-label="Remove image"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+        </div>
+
+        <div id="chatComposer" class="chat-composer">
+
+            <button class="chat-icon-btn" type="button" aria-label="Upload image"
+                onclick="document.getElementById('chatImageInput').click()"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg></button>
+
+            <input id="chatImageInput" class="hidden" type="file"
+                accept="image/jpeg,image/png,image/gif,image/webp"
+                onchange="onImagePicked(event)">
+
+            <textarea id="chatInput" rows="1" maxlength="2000"
+                placeholder="Type a message" aria-label="Message"
+                oninput="autosizeChatInput()" onkeydown="onChatInputKey(event)"></textarea>
+
+            <button id="chatSend" class="chat-send" type="button"
+                aria-label="Send message" onclick="sendMessage()"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg></button>
+
+        </div>
+
+        <div id="chatLocked" class="chat-locked hidden">
+            You can only message people you are friends with.
+        </div>
+
+    </div>
+
+</div>
+
+
+<script src="app.js?v=4"></script>
+<script src="social.js?v=4"></script>
+<script src="messages.js?v=4"></script>
 
 </body>
 </html>

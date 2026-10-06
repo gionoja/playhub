@@ -263,6 +263,11 @@ function showScreen(screenName) {
     }
 
 
+    if (screenName === "messages" && typeof loadConversations === "function") {
+        loadConversations();
+    }
+
+
     window.scrollTo(0, 0);
 }
 

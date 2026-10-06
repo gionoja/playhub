@@ -6,6 +6,7 @@
 
 const social = {
     friends: [],
+    suggestions: [],
     incoming: [],
     outgoing: [],
     results: null,          // null = not searching
@@ -34,6 +35,7 @@ const ICON_PATHS = {
     users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
     userX: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="17" x2="22" y1="8" y2="13"/><line x1="22" x2="17" y1="8" y2="13"/>',
     alert: '<circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/>',
+    message: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
     inbox: '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>'
 };
 
@@ -110,11 +112,18 @@ function skeletonRows(count) {
 
 async function api(path, options = {}) {
 
+    // app.js defines these. If they are missing, an older app.js is still being used.
+    if (typeof TOKEN_KEY === "undefined" || typeof API_URL === "undefined") {
+        throw new Error(
+            "app.js is out of date. Replace it with the newest app.js, then press Ctrl+F5."
+        );
+    }
+
     const headers = {};
     const token = localStorage.getItem(TOKEN_KEY);
 
     if (token) headers["Authorization"] = "Bearer " + token;
-    if (options.body) headers["Content-Type"] = "application/json";
+    if (options.body) headers["Content-Type"] = "application/json";   // files set their own type
 
     let response;
 
@@ -122,7 +131,7 @@ async function api(path, options = {}) {
         response = await fetch(API_URL + path, {
             method: options.method || "GET",
             headers: headers,
-            body: options.body ? JSON.stringify(options.body) : undefined
+            body: options.formData || (options.body ? JSON.stringify(options.body) : undefined)
         });
     } catch (error) {
         throw new Error("Can't reach the PLAYHUB server");
@@ -159,11 +168,15 @@ function onAppOpened() {
     refreshRequests();
 
     social.pollTimer = setInterval(refreshRequests, 30000);
+
+    if (typeof onMessagingOpened === "function") onMessagingOpened();
 }
 
 function onLoggedOut() {
 
     resetSocialState();
+
+    if (typeof onMessagingClosed === "function") onMessagingClosed();
 
     const input = document.getElementById("userSearchInput");
     if (input) input.value = "";
@@ -186,6 +199,7 @@ function resetSocialState() {
     social.pollTimer = null;
     social.searchTimer = null;
     social.friends = [];
+    social.suggestions = [];
     social.incoming = [];
     social.outgoing = [];
     social.results = null;
@@ -242,12 +256,14 @@ async function loadFriendsScreen() {
     renderFriendsContent();
 
     try {
-        const [friends, requests] = await Promise.all([
+        const [friends, requests, suggestions] = await Promise.all([
             api("/friends"),
-            api("/friends/requests")
+            api("/friends/requests"),
+            api("/users/suggestions")
         ]);
 
         social.friends = friends;
+        social.suggestions = suggestions;
         setRequests(requests);
 
     } catch (error) {
@@ -263,12 +279,14 @@ async function loadFriendsScreen() {
 async function refreshSocialViews() {
 
     try {
-        const [friends, requests] = await Promise.all([
+        const [friends, requests, suggestions] = await Promise.all([
             api("/friends"),
-            api("/friends/requests")
+            api("/friends/requests"),
+            api("/users/suggestions")
         ]);
 
         social.friends = friends;
+        social.suggestions = suggestions;
         setRequests(requests);
 
     } catch (error) {
@@ -464,9 +482,14 @@ function renderFriendsContent() {
 
         if (social.friends.length === 0) {
             box.append(stateBlock("users", "No friends yet",
-                "Search for people above and send a friend request to get started."));
+                "Send a friend request to someone below, or search for people above."));
         } else {
             box.append(peopleList(social.friends));
+        }
+
+        if (social.suggestions.length) {
+            box.append(sectionTitle("People you may know"),
+                peopleList(social.suggestions));
         }
 
         return;
@@ -512,7 +535,11 @@ function relationButtons(user) {
             ];
 
         case "friends":
-            return [actionButton("Friends", "ghost", null, "check", true)];
+            return [
+                actionButton("Message", "primary",
+                    () => openChat(user.username), "message"),
+                actionButton("Friends", "ghost", null, "check", true)
+            ];
 
         default:
             return [];
