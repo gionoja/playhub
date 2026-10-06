@@ -22,6 +22,7 @@ from email_service import mail, send_verification_email
 from admin import admin_bp
 from auth import create_token
 from social import social_bp
+from feed import feed_bp
 from messaging import messages_bp
 from verify_page import render_verify_page
 
@@ -54,6 +55,7 @@ db.init_app(app)
 
 app.register_blueprint(admin_bp)
 app.register_blueprint(social_bp)
+app.register_blueprint(feed_bp)
 app.register_blueprint(messages_bp)
 
 

@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy import CheckConstraint, Index, UniqueConstraint, or_, text
 
 from database import db
-from uploads import delete_upload_files
+from uploads import POST_DIR, STORY_DIR, delete_upload_files
 
 
 class User(db.Model):
@@ -181,6 +181,113 @@ class Message(db.Model):
     read_at = db.Column(db.DateTime, nullable=True)
 
 
+class Post(db.Model):
+    """A feed post. Visible to its author and the author's friends."""
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    user_id = db.Column(
+        db.Integer, db.ForeignKey("user.id"), nullable=False, index=True
+    )
+
+    content = db.Column(db.String(2000), nullable=True)
+    image_filename = db.Column(db.String(64), nullable=True, index=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    author = db.relationship("User", foreign_keys=[user_id])
+
+
+class PostLike(db.Model):
+    """One row per (user, post). The unique pair makes duplicate likes impossible."""
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    post_id = db.Column(
+        db.Integer, db.ForeignKey("post.id"), nullable=False, index=True
+    )
+    user_id = db.Column(
+        db.Integer, db.ForeignKey("user.id"), nullable=False
+    )
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("post_id", "user_id", name="uq_post_like_pair"),
+    )
+
+
+class PostComment(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+
+    post_id = db.Column(
+        db.Integer, db.ForeignKey("post.id"), nullable=False, index=True
+    )
+    user_id = db.Column(
+        db.Integer, db.ForeignKey("user.id"), nullable=False
+    )
+
+    content = db.Column(db.String(500), nullable=False)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    author = db.relationship("User", foreign_keys=[user_id])
+
+
+class Story(db.Model):
+    """Active while expires_at is in the future. Rows are kept as history."""
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    user_id = db.Column(
+        db.Integer, db.ForeignKey("user.id"), nullable=False, index=True
+    )
+
+    image_filename = db.Column(db.String(64), nullable=False, index=True)
+    caption = db.Column(db.String(200), nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    expires_at = db.Column(db.DateTime, nullable=False, index=True)
+
+
+class StoryView(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+
+    story_id = db.Column(
+        db.Integer, db.ForeignKey("story.id"), nullable=False, index=True
+    )
+    viewer_id = db.Column(
+        db.Integer, db.ForeignKey("user.id"), nullable=False
+    )
+
+    viewed_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("story_id", "viewer_id", name="uq_story_view_pair"),
+    )
+
+
+class Notification(db.Model):
+    """Activity on your posts. kind: post_like | post_comment"""
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    user_id = db.Column(
+        db.Integer, db.ForeignKey("user.id"), nullable=False, index=True
+    )
+    actor_id = db.Column(
+        db.Integer, db.ForeignKey("user.id"), nullable=False
+    )
+
+    kind = db.Column(db.String(20), nullable=False)
+    post_id = db.Column(db.Integer, nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    read_at = db.Column(db.DateTime, nullable=True)
+
+    actor = db.relationship("User", foreign_keys=[actor_id])
+
+
 def delete_user_completely(user):
     """Delete a user together with everything that points at them.
     The caller commits."""
@@ -215,6 +322,35 @@ def delete_user_completely(user):
             Conversation.id.in_(conversation_ids)
         ).delete(synchronize_session=False)
         delete_upload_files(files)
+
+    # Their posts (with the likes, comments and images on them)
+    posts = Post.query.filter_by(user_id=uid).all()
+    post_ids = [p.id for p in posts]
+
+    if post_ids:
+        PostLike.query.filter(PostLike.post_id.in_(post_ids)).delete(synchronize_session=False)
+        PostComment.query.filter(PostComment.post_id.in_(post_ids)).delete(synchronize_session=False)
+        Notification.query.filter(Notification.post_id.in_(post_ids)).delete(synchronize_session=False)
+        Post.query.filter(Post.id.in_(post_ids)).delete(synchronize_session=False)
+        delete_upload_files([p.image_filename for p in posts], POST_DIR)
+
+    # Their likes, comments and notifications on other people's posts
+    PostLike.query.filter_by(user_id=uid).delete(synchronize_session=False)
+    PostComment.query.filter_by(user_id=uid).delete(synchronize_session=False)
+    Notification.query.filter(
+        or_(Notification.user_id == uid, Notification.actor_id == uid)
+    ).delete(synchronize_session=False)
+
+    # Their stories and story views
+    stories = Story.query.filter_by(user_id=uid).all()
+    story_ids = [s.id for s in stories]
+
+    if story_ids:
+        StoryView.query.filter(StoryView.story_id.in_(story_ids)).delete(synchronize_session=False)
+        Story.query.filter(Story.id.in_(story_ids)).delete(synchronize_session=False)
+        delete_upload_files([s.image_filename for s in stories], STORY_DIR)
+
+    StoryView.query.filter_by(viewer_id=uid).delete(synchronize_session=False)
 
     Profile.query.filter_by(user_id=uid).delete(synchronize_session=False)
 

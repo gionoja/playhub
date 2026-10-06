@@ -5,6 +5,8 @@ import secrets
 
 UPLOAD_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
 MESSAGE_DIR = os.path.join(UPLOAD_ROOT, "messages")
+POST_DIR = os.path.join(UPLOAD_ROOT, "posts")
+STORY_DIR = os.path.join(UPLOAD_ROOT, "stories")
 
 MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 5 MB
 
@@ -13,7 +15,8 @@ SAFE_NAME = re.compile(r"^[0-9a-f]{32}\.(jpg|png|gif|webp)$")
 
 MIME = {"jpg": "image/jpeg", "png": "image/png", "gif": "image/gif", "webp": "image/webp"}
 
-os.makedirs(MESSAGE_DIR, exist_ok=True)
+for _folder in (MESSAGE_DIR, POST_DIR, STORY_DIR):
+    os.makedirs(_folder, exist_ok=True)
 
 
 def detect_image_type(data):
@@ -30,17 +33,21 @@ def detect_image_type(data):
     return None
 
 
-def save_message_image(data, ext):
+def save_image(data, ext, folder):
     name = secrets.token_hex(16) + "." + ext
-    with open(os.path.join(MESSAGE_DIR, name), "wb") as f:
+    with open(os.path.join(folder, name), "wb") as f:
         f.write(data)
     return name
 
 
-def delete_upload_files(names):
+def save_message_image(data, ext):
+    return save_image(data, ext, MESSAGE_DIR)
+
+
+def delete_upload_files(names, folder=MESSAGE_DIR):
     for name in names:
         if name and SAFE_NAME.match(name):
             try:
-                os.remove(os.path.join(MESSAGE_DIR, name))
+                os.remove(os.path.join(folder, name))
             except OSError:
                 pass
