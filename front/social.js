@@ -170,6 +170,8 @@ function onAppOpened() {
     social.pollTimer = setInterval(refreshRequests, 30000);
 
     if (typeof onMessagingOpened === "function") onMessagingOpened();
+
+    if (typeof onFeedOpened === "function") onFeedOpened();
 }
 
 function onLoggedOut() {
@@ -177,6 +179,8 @@ function onLoggedOut() {
     resetSocialState();
 
     if (typeof onMessagingClosed === "function") onMessagingClosed();
+
+    if (typeof onFeedClosed === "function") onFeedClosed();
 
     const input = document.getElementById("userSearchInput");
     if (input) input.value = "";
@@ -219,6 +223,8 @@ function onNotificationsOpened() {
     renderNotifications();
 
     refreshRequests();
+
+    if (typeof markActivityRead === "function") markActivityRead();
 }
 
 
@@ -239,6 +245,8 @@ async function refreshRequests() {
 
     updateBadges();
     renderNotifications();
+
+    if (typeof refreshActivity === "function") refreshActivity();
 
     const onFriendsScreen = document
         .getElementById("friendsScreen")
@@ -311,10 +319,13 @@ function updateBadges() {
 
     const count = social.incoming.length;
 
-    ["notifBadge", "navFriendsBadge"].forEach(id => {
-        const badge = document.getElementById(id);
-        if (badge) badge.classList.toggle("hidden", count === 0);
-    });
+    const activity = typeof unreadActivityCount === "function" ? unreadActivityCount() : 0;
+
+    const bell = document.getElementById("notifBadge");
+    if (bell) bell.classList.toggle("hidden", count + activity === 0);
+
+    const navBadge = document.getElementById("navFriendsBadge");
+    if (navBadge) navBadge.classList.toggle("hidden", count === 0);
 
     const requestsPill = document.getElementById("requestsCount");
     if (requestsPill) {
@@ -537,7 +548,7 @@ function relationButtons(user) {
         case "friends":
             return [
                 actionButton("Message", "primary",
-                    () => openChat(user.username), "message"),
+                    () => startChat(user.username), "message"),
                 actionButton("Friends", "ghost", null, "check", true)
             ];
 
@@ -545,6 +556,21 @@ function relationButtons(user) {
             return [];
     }
 }
+
+// Opens a chat, or explains clearly if the messaging files aren't all in place
+function startChat(username) {
+
+    if (typeof openChat !== "function" || !document.getElementById("chatView")) {
+        showToast(
+            "Messaging files are missing or old. Put messages.js and the newest " +
+            "index.html in your frontend folder, then press Ctrl+F5."
+        );
+        return;
+    }
+
+    openChat(username);
+}
+
 
 async function friendAction(kind, user) {
 
@@ -714,6 +740,8 @@ function renderProfileModal(p) {
         });
         body.append(chips);
     }
+
+    if (typeof renderProfilePosts === "function") renderProfilePosts(p);
 }
 
 
@@ -727,10 +755,6 @@ function renderNotifications() {
     if (!list || !empty) return;
 
     list.replaceChildren();
-
-    empty.classList.toggle("hidden", social.incoming.length > 0);
-
-    if (social.incoming.length === 0) return;
 
     social.incoming.forEach(user => {
 
@@ -758,4 +782,9 @@ function renderNotifications() {
 
         list.append(item);
     });
+
+    const activity = typeof appendActivityNotifications === "function"
+        ? appendActivityNotifications(list) : 0;
+
+    empty.classList.toggle("hidden", social.incoming.length + activity > 0);
 }
