@@ -22,6 +22,8 @@ from email_service import mail, send_verification_email
 from admin import admin_bp
 from auth import create_token
 from social import social_bp
+from accounts import accounts_bp
+from profiles import avatar_url
 from feed import feed_bp
 from messaging import messages_bp
 from verify_page import render_verify_page
@@ -55,6 +57,7 @@ db.init_app(app)
 
 app.register_blueprint(admin_bp)
 app.register_blueprint(social_bp)
+app.register_blueprint(accounts_bp)
 app.register_blueprint(feed_bp)
 app.register_blueprint(messages_bp)
 
@@ -193,6 +196,13 @@ def verification_status():
     })
 
 
+def avatar_url_for_login(user):
+    # the login response is built before a session exists, so sign it for this user
+    from flask import g
+    g.me_id = user.id
+    return avatar_url(user.id)
+
+
 @app.route("/login", methods=["POST"])
 def login():
 
@@ -225,7 +235,8 @@ def login():
         "user": {
             "full_name": user.full_name,
             "username": user.username,
-            "email": user.email
+            "email": user.email,
+            "avatar_url": avatar_url_for_login(user)
         }
     }), 200
 

@@ -1,4 +1,5 @@
 """Login tokens. The browser sends:  Authorization: Bearer <token>"""
+import hashlib
 from datetime import datetime
 from functools import wraps
 
@@ -17,8 +18,13 @@ def _serializer():
     )
 
 
+def _password_stamp(user):
+    # Changes whenever the password changes, which invalidates older logins
+    return hashlib.sha256(user.password_hash.encode()).hexdigest()[:12]
+
+
 def create_token(user):
-    return _serializer().dumps({"uid": user.id})
+    return _serializer().dumps({"uid": user.id, "pv": _password_stamp(user)})
 
 
 def _unauthorized():
@@ -45,7 +51,11 @@ def login_required(view):
 
         user = db.session.get(User, payload.get("uid"))
 
-        if not user or not user.email_verified:
+        if (
+            not user
+            or not user.email_verified
+            or payload.get("pv") != _password_stamp(user)
+        ):
             return _unauthorized()
 
         g.user = user

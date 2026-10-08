@@ -14,7 +14,7 @@ from datetime import datetime
 from flask import Blueprint, Response, abort, jsonify, request
 
 from database import db
-from models import User
+from models import User, delete_user_completely
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 
@@ -79,7 +79,7 @@ def delete_user(user_id):
     if not user:
         return jsonify({"message": "User not found"}), 404
 
-    db.session.delete(user)
+    delete_user_completely(user)
     db.session.commit()
     return jsonify({"message": "User deleted"})
 
@@ -90,7 +90,7 @@ def purge_expired():
     removed = 0
     for user in User.query.filter_by(email_verified=False).all():
         if _status(user) == "expired":
-            db.session.delete(user)
+            delete_user_completely(user)
             removed += 1
     db.session.commit()
     return jsonify({"message": f"{removed} expired account(s) deleted", "removed": removed})

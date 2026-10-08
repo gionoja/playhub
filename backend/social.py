@@ -5,9 +5,11 @@ from flask import Blueprint, g, jsonify, request
 from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
 
+from accounts import get_privacy
 from auth import login_required
 from database import db
-from models import FriendRequest, Friendship, Profile, User
+from models import FriendRequest, Friendship, Post, Profile, User
+from profiles import avatar_url, preload_avatars
 
 social_bp = Blueprint("social", __name__)
 
@@ -87,8 +89,19 @@ def _person(user, rel):
     return {
         "full_name": user.full_name,
         "username": user.username,
+        "avatar_url": avatar_url(user.id),
         "relationship": rel["status"],
         "request_id": rel["request_id"],
+    }
+
+
+def _friend_id_set(user_id):
+    rows = Friendship.query.filter(
+        or_(Friendship.user_low_id == user_id, Friendship.user_high_id == user_id)
+    ).all()
+
+    return {
+        f.user_high_id if f.user_low_id == user_id else f.user_low_id for f in rows
     }
 
 
@@ -118,7 +131,9 @@ def me():
         "username": user.username,
         "email": user.email,
         "bio": profile.bio,
+        "avatar_url": avatar_url(user.id),
         "friends_count": _friends_count(user.id),
+        "posts_count": Post.query.filter_by(user_id=user.id).count(),
         "pending_requests": incoming,
     })
 
@@ -147,9 +162,31 @@ def search_users():
         .all()
     )
 
+    preload_avatars([u.id for u in users])
     rels = _relationships(g.me_id, [u.id for u in users])
 
     return jsonify([_person(u, rels[u.id]) for u in users])
+
+
+@social_bp.route("/users/suggestions")
+@login_required
+def suggestions():
+    """Verified people you aren't friends with yet, newest accounts first."""
+    users = (
+        User.query.filter(User.email_verified.is_(True), User.id != g.me_id)
+        .order_by(User.id.desc())
+        .limit(40)
+        .all()
+    )
+
+    preload_avatars([u.id for u in users])
+    rels = _relationships(g.me_id, [u.id for u in users])
+
+    people = [
+        _person(u, rels[u.id]) for u in users if rels[u.id]["status"] != "friends"
+    ]
+
+    return jsonify(people[:20])
 
 
 @social_bp.route("/users/<username>")
@@ -163,25 +200,70 @@ def public_profile(username):
 
     profile = _ensure_profile(user)
     rel = _relationships(g.me_id, [user.id])[user.id]
+    settings = get_privacy(user.id)
 
-    friend_rows = Friendship.query.filter(
-        or_(Friendship.user_low_id == user.id, Friendship.user_high_id == user.id)
-    ).order_by(Friendship.created_at.desc()).limit(12).all()
+    is_self = user.id == g.me_id
+    is_friend = rel["status"] == "friends"
 
-    friend_ids = [
-        f.user_high_id if f.user_low_id == user.id else f.user_low_id
-        for f in friend_rows
-    ]
-    friends = User.query.filter(User.id.in_(friend_ids)).all() if friend_ids else []
+    def allowed(level):
+        return is_self or level == "everyone" or (level == "friends" and is_friend)
+
+    data = None
+
+    friend_ids = _friend_id_set(user.id)
+    friends_visible = allowed(settings["friends_visibility"])
+    info_visible = allowed(settings["info_visibility"])
+    email_visible = allowed(settings["email_visibility"])
+    posts_visible = is_self or is_friend
+
+    friends, mutual = [], []
+
+    if friends_visible:
+        recent = Friendship.query.filter(
+            or_(Friendship.user_low_id == user.id, Friendship.user_high_id == user.id)
+        ).order_by(Friendship.created_at.desc()).limit(12).all()
+
+        ids = [
+            f.user_high_id if f.user_low_id == user.id else f.user_low_id
+            for f in recent
+        ]
+
+        mutual_ids = []
+        if not is_self:
+            mutual_ids = list(friend_ids & _friend_id_set(g.me_id))[:6]
+
+        people = {
+            u.id: u for u in User.query.filter(User.id.in_(set(ids) | set(mutual_ids))).all()
+        } if (ids or mutual_ids) else {}
+
+        preload_avatars(list(people) + [user.id])
+
+        def brief(uid):
+            u = people[uid]
+            return {
+                "full_name": u.full_name,
+                "username": u.username,
+                "avatar_url": avatar_url(u.id),
+            }
+
+        friends = [brief(i) for i in ids if i in people]
+        mutual = [brief(i) for i in mutual_ids if i in people]
+
+    preload_avatars([user.id])
 
     data = _person(user, rel)
     data.update({
-        "bio": profile.bio,
-        "joined": _iso(profile.created_at),
-        "friends_count": _friends_count(user.id),
-        "friends": [
-            {"full_name": f.full_name, "username": f.username} for f in friends
-        ],
+        "bio": profile.bio if info_visible else "",
+        "joined": _iso(profile.created_at) if info_visible else None,
+        "info_hidden": not info_visible,
+        "email": user.email if email_visible else None,
+        "email_hidden": not email_visible,
+        "friends_hidden": not friends_visible,
+        "friends_count": len(friend_ids) if friends_visible else None,
+        "friends": friends,
+        "mutual_friends": mutual,
+        "mutual_count": len(friend_ids & _friend_id_set(g.me_id)) if (friends_visible and not is_self) else 0,
+        "posts_count": Post.query.filter_by(user_id=user.id).count() if posts_visible else None,
         # Real numbers. They stay at zero until matches exist.
         "stats": {"games_played": 0, "wins": 0},
     })
@@ -208,6 +290,8 @@ def list_friends():
 
     users = User.query.filter(User.id.in_(ids)).order_by(User.full_name).all() if ids else []
 
+    preload_avatars([u.id for u in users])
+
     rel = {"status": "friends", "request_id": None}
     return jsonify([_person(u, rel) for u in users])
 
@@ -223,6 +307,10 @@ def list_requests():
         ),
     ).order_by(FriendRequest.created_at.desc()).all()
 
+    preload_avatars(
+        [r.sender_id for r in pending] + [r.receiver_id for r in pending]
+    )
+
     incoming, outgoing = [], []
 
     for r in pending:
@@ -231,6 +319,7 @@ def list_requests():
                 "request_id": r.id,
                 "full_name": r.sender.full_name,
                 "username": r.sender.username,
+                "avatar_url": avatar_url(r.sender_id),
                 "relationship": "request_received",
                 "created_at": _iso(r.created_at),
             })
@@ -239,6 +328,7 @@ def list_requests():
                 "request_id": r.id,
                 "full_name": r.receiver.full_name,
                 "username": r.receiver.username,
+                "avatar_url": avatar_url(r.receiver_id),
                 "relationship": "request_sent",
                 "created_at": _iso(r.created_at),
             })

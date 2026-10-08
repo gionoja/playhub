@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy import CheckConstraint, Index, UniqueConstraint, or_, text
 
 from database import db
-from uploads import POST_DIR, STORY_DIR, delete_upload_files
+from uploads import AVATAR_DIR, POST_DIR, STORY_DIR, delete_upload_files
 
 
 class User(db.Model):
@@ -288,6 +288,38 @@ class Notification(db.Model):
     actor = db.relationship("User", foreign_keys=[actor_id])
 
 
+class PrivacySetting(db.Model):
+    """Who may see what. No row means the defaults below."""
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    user_id = db.Column(
+        db.Integer, db.ForeignKey("user.id"), unique=True, nullable=False
+    )
+
+    # only_me | friends | everyone
+    email_visibility = db.Column(db.String(10), nullable=False, default="only_me")
+    friends_visibility = db.Column(db.String(10), nullable=False, default="everyone")
+    info_visibility = db.Column(db.String(10), nullable=False, default="everyone")
+
+
+class PasswordReset(db.Model):
+    """A one-time reset code. Only a keyed hash of the code is stored."""
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    user_id = db.Column(
+        db.Integer, db.ForeignKey("user.id"), nullable=False, index=True
+    )
+
+    code_hash = db.Column(db.String(64), nullable=False)
+    attempts = db.Column(db.Integer, nullable=False, default=0)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    used_at = db.Column(db.DateTime, nullable=True)
+
+
 def delete_user_completely(user):
     """Delete a user together with everything that points at them.
     The caller commits."""
@@ -351,6 +383,13 @@ def delete_user_completely(user):
         delete_upload_files([s.image_filename for s in stories], STORY_DIR)
 
     StoryView.query.filter_by(viewer_id=uid).delete(synchronize_session=False)
+
+    PrivacySetting.query.filter_by(user_id=uid).delete(synchronize_session=False)
+    PasswordReset.query.filter_by(user_id=uid).delete(synchronize_session=False)
+
+    profile = Profile.query.filter_by(user_id=uid).first()
+    if profile and profile.avatar_filename:
+        delete_upload_files([profile.avatar_filename], AVATAR_DIR)
 
     Profile.query.filter_by(user_id=uid).delete(synchronize_session=False)
 

@@ -35,3 +35,28 @@ If you did not create a PLAYHUB account, you can ignore this email.
 
     with app.app_context():
         mail.send(message)
+
+
+def send_reset_code_email(app, email, code):
+
+    message = Message(
+        subject="Your PLAYHUB password reset code",
+        sender=os.getenv("MAIL_USERNAME"),
+        recipients=[email]
+    )
+
+    message.body = f"""
+Hello,
+
+Use this code to reset your PLAYHUB password:
+
+{code}
+
+The code expires in 15 minutes and can only be used once.
+
+If you did not ask to reset your password, you can ignore this email.
+Your password will not change.
+"""
+
+    with app.app_context():
+        mail.send(message)

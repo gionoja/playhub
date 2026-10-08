@@ -4,16 +4,17 @@ from datetime import datetime, timedelta
 from flask import (
     Blueprint, abort, current_app, g, jsonify, request, send_from_directory
 )
-from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 
 from auth import login_required
 from database import db
 from models import Conversation, Friendship, Message, Profile, User
+from profiles import avatar_url, preload_avatars
+from signing import signed_url, verified_viewer
 from uploads import (
-    MAX_IMAGE_BYTES, MESSAGE_DIR, MIME, SAFE_NAME, delete_upload_files,
-    detect_image_type, save_message_image
+    MAX_IMAGE_BYTES, MESSAGE_DIR, MIME, SAFE_NAME, ImageProblem,
+    delete_upload_files, detect_image_type, prepare_image, save_message_image
 )
 
 messages_bp = Blueprint("messages", __name__)
@@ -63,6 +64,7 @@ def _other_info(user):
     return {
         "full_name": user.full_name,
         "username": user.username,
+        "avatar_url": avatar_url(user.id),
         "online": _is_online(user.id),
     }
 
@@ -77,17 +79,9 @@ def _other_user(username):
     return user
 
 
-def _image_serializer():
-    return URLSafeTimedSerializer(
-        current_app.config["SECRET_KEY"], salt="playhub-image"
-    )
-
-
 def _image_url(filename, user_id):
-    # <img> tags cannot send a login header, so the URL itself carries a
-    # signed, expiring pass that is tied to this user and this file.
-    token = _image_serializer().dumps({"f": filename, "u": user_id})
-    return f"/messages/images/{filename}?t={token}"
+    # stays the same all day, so browsers can cache the picture
+    return signed_url("messages", filename, user_id)
 
 
 def _message_dict(m):
@@ -149,6 +143,7 @@ def list_conversations():
 
     other_ids = [c.user_high_id if c.user_low_id == me else c.user_low_id for c in convs]
     users = {u.id: u for u in User.query.filter(User.id.in_(other_ids)).all()}
+    preload_avatars(other_ids)
 
     result = []
 
@@ -287,6 +282,11 @@ def send_message(username):
         if not kind:
             return _error("Only JPG, PNG, GIF or WebP images are allowed", 400)
 
+        try:
+            data, kind = prepare_image(data, kind)
+        except ImageProblem as problem:
+            return _error(str(problem), 400)
+
         saved_name = save_message_image(data, kind)
 
     conv = _find_conversation(g.me_id, other.id)
@@ -331,21 +331,16 @@ def message_image(filename):
     if not SAFE_NAME.match(filename):
         abort(404)
 
-    try:
-        payload = _image_serializer().loads(
-            request.args.get("t", ""), max_age=60 * 60 * 24
-        )
-    except (BadSignature, SignatureExpired):
-        abort(404)
+    viewer = verified_viewer("messages", filename)
 
-    if payload.get("f") != filename:
+    if viewer is None:
         abort(404)
 
     message = Message.query.filter_by(image_filename=filename).first()
     conv = db.session.get(Conversation, message.conversation_id) if message else None
 
     # Only the two people in the conversation may ever see the image
-    if not conv or payload.get("u") not in (conv.user_low_id, conv.user_high_id):
+    if not conv or viewer not in (conv.user_low_id, conv.user_high_id):
         abort(404)
 
     response = send_from_directory(
@@ -354,5 +349,5 @@ def message_image(filename):
         mimetype=MIME[filename.rsplit(".", 1)[1]],
     )
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["Cache-Control"] = "private, max-age=3600"
+    response.headers["Cache-Control"] = "private, max-age=86400, immutable"
     return response

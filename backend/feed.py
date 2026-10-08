@@ -5,8 +5,8 @@ of your friends. The server enforces it; the browser is never trusted."""
 from datetime import datetime, timedelta
 
 from flask import Blueprint, abort, current_app, g, jsonify, request, send_from_directory
-from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from sqlalchemy import func, or_
+from sqlalchemy.orm import joinedload
 from sqlalchemy.exc import IntegrityError
 
 from auth import login_required
@@ -14,9 +14,11 @@ from database import db
 from models import (
     Friendship, Notification, Post, PostComment, PostLike, Story, StoryView, User
 )
+from profiles import avatar_url, preload_avatars
+from signing import signed_url, verified_viewer
 from uploads import (
-    MAX_IMAGE_BYTES, MIME, POST_DIR, SAFE_NAME, STORY_DIR, delete_upload_files,
-    detect_image_type, save_image
+    MAX_IMAGE_BYTES, MIME, POST_DIR, SAFE_NAME, STORY_DIR, ImageProblem,
+    delete_upload_files, detect_image_type, prepare_image, save_image
 )
 
 feed_bp = Blueprint("feed", __name__)
@@ -61,21 +63,18 @@ def _can_see(owner_id, viewer_id=None):
     ).first() is not None
 
 
-def _signer(kind):
-    return URLSafeTimedSerializer(
-        current_app.config["SECRET_KEY"], salt=f"playhub-{kind}-image"
-    )
-
-
 def _image_url(kind, filename):
-    # <img> tags cannot send a login header, so the link carries a signed,
-    # expiring pass tied to this user and this file.
-    token = _signer(kind).dumps({"f": filename, "u": g.me_id})
-    return f"/{kind}/images/{filename}?t={token}"
+    # <img> tags cannot send a login header, so the link carries a signature
+    # tied to this person. It stays the same all day so browsers can cache it.
+    return signed_url(kind, filename, g.me_id)
 
 
 def _person(user):
-    return {"full_name": user.full_name, "username": user.username}
+    return {
+        "full_name": user.full_name,
+        "username": user.username,
+        "avatar_url": avatar_url(user.id),
+    }
 
 
 def _read_upload():
@@ -94,6 +93,11 @@ def _read_upload():
 
     if not ext:
         return None, None, _error("Only JPG, PNG, GIF or WebP images are allowed", 400)
+
+    try:
+        data, ext = prepare_image(data, ext)       # checks, shrinks, strips metadata
+    except ImageProblem as problem:
+        return None, None, _error(str(problem), 400)
 
     return data, ext, None
 
@@ -140,6 +144,7 @@ def _serialize_posts(posts):
             User.id.in_({p.user_id for p in posts})
         ).all()
     }
+    preload_avatars(list(authors))
 
     return [
         {
@@ -332,9 +337,11 @@ def get_comments(post_id):
     if not _visible_post_or_404(post_id):
         return _error("Post not found", 404)
 
-    comments = PostComment.query.filter_by(post_id=post_id).order_by(
-        PostComment.id.asc()
-    ).limit(200).all()
+    comments = PostComment.query.options(joinedload(PostComment.author)).filter_by(
+        post_id=post_id
+    ).order_by(PostComment.id.asc()).limit(200).all()
+
+    preload_avatars([c.user_id for c in comments])
 
     return jsonify({
         "comments": [_comment_dict(c) for c in comments],
@@ -362,6 +369,8 @@ def add_comment(post_id):
     db.session.add(comment)
     _notify(post.user_id, "post_comment", post_id)
     db.session.commit()
+
+    preload_avatars([g.me_id])
 
     return jsonify({
         "comment": _comment_dict(comment),
@@ -446,6 +455,7 @@ def get_stories():
         .filter(StoryView.story_id.in_(ids)).group_by(StoryView.story_id).all()
     )
     users = {u.id: u for u in User.query.filter(User.id.in_(owner_ids)).all()}
+    preload_avatars(list(users))
 
     groups = {}
 
@@ -544,15 +554,10 @@ def _serve_image(kind, filename, folder):
     if not SAFE_NAME.match(filename):
         abort(404)
 
-    try:
-        payload = _signer(kind).loads(request.args.get("t", ""), max_age=60 * 60 * 24)
-    except (BadSignature, SignatureExpired):
-        abort(404)
+    viewer = verified_viewer(kind, filename)
 
-    if payload.get("f") != filename:
+    if viewer is None:
         abort(404)
-
-    viewer = payload.get("u")
 
     if kind == "posts":
         item = Post.query.filter_by(image_filename=filename).first()
@@ -569,7 +574,7 @@ def _serve_image(kind, filename, folder):
         folder, filename, mimetype=MIME[filename.rsplit(".", 1)[1]]
     )
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["Cache-Control"] = "private, max-age=3600"
+    response.headers["Cache-Control"] = "private, max-age=86400, immutable"
     return response
 
 
@@ -578,9 +583,11 @@ def _serve_image(kind, filename, folder):
 @feed_bp.route("/notifications")
 @login_required
 def get_notifications():
-    rows = Notification.query.filter_by(user_id=g.me_id).order_by(
-        Notification.id.desc()
-    ).limit(30).all()
+    rows = Notification.query.options(joinedload(Notification.actor)).filter_by(
+        user_id=g.me_id
+    ).order_by(Notification.id.desc()).limit(30).all()
+
+    preload_avatars([n.actor_id for n in rows])
 
     unread = Notification.query.filter_by(user_id=g.me_id, read_at=None).count()
 
