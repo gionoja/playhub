@@ -36,6 +36,9 @@ const ICON_PATHS = {
     userX: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="17" x2="22" y1="8" y2="13"/><line x1="22" x2="17" y1="8" y2="13"/>',
     alert: '<circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/>',
     message: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
+    lock: '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+    file: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+    comment: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
     inbox: '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>'
 };
 
@@ -46,7 +49,7 @@ function iconNode(name, size) {
         '" height="' + size + '" viewBox="0 0 24 24" fill="none" ' +
         'stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
         'stroke-linejoin="round" aria-hidden="true">' +
-        ICON_PATHS[name] + "</svg>";
+        (ICON_PATHS[name] || "") + "</svg>";
     return wrap.content.firstChild;
 }
 
@@ -77,9 +80,30 @@ function actionButton(label, variant, onClick, iconName, disabled) {
     return b;
 }
 
+// Shows the profile picture, or the first letter of the name until it loads
+// (and for good if the person has no picture or it fails to load).
+function fillAvatar(node, user) {
+
+    const initial = (user.full_name || "?").trim().charAt(0).toUpperCase();
+
+    node.replaceChildren(document.createTextNode(initial));
+
+    if (!user.avatar_url) return;
+
+    const img = document.createElement("img");
+    img.className = "avatar-img";
+    img.alt = "";
+    img.decoding = "async";
+    img.addEventListener("load", () => img.classList.add("loaded"));
+    img.addEventListener("error", () => img.remove());
+    img.src = API_URL + user.avatar_url;
+
+    node.append(img);
+}
+
 function avatarNode(user, size) {
     const a = el("div", "person-avatar" + (size === "large" ? " large" : ""));
-    a.textContent = (user.full_name || "?").trim().charAt(0).toUpperCase();
+    fillAvatar(a, user);
     return a;
 }
 
@@ -167,11 +191,16 @@ function onAppOpened() {
 
     refreshRequests();
 
-    social.pollTimer = setInterval(refreshRequests, 30000);
+        // background refresh, paused while the tab is hidden
+    social.pollTimer = setInterval(() => {
+        if (!document.hidden) refreshRequests();
+    }, 30000);
 
     if (typeof onMessagingOpened === "function") onMessagingOpened();
 
-    if (typeof onFeedOpened === "function") onFeedOpened();
+        if (typeof onFeedOpened === "function") onFeedOpened();
+
+    if (typeof onProfileOpened === "function") onProfileOpened();
 }
 
 function onLoggedOut() {
@@ -180,7 +209,10 @@ function onLoggedOut() {
 
     if (typeof onMessagingClosed === "function") onMessagingClosed();
 
-    if (typeof onFeedClosed === "function") onFeedClosed();
+        if (typeof onFeedClosed === "function") onFeedClosed();
+
+    if (typeof onProfileClosed === "function") onProfileClosed();
+
 
     const input = document.getElementById("userSearchInput");
     if (input) input.value = "";
@@ -660,29 +692,66 @@ async function loadProfileModal(username, silent) {
     }
 }
 
+function infoRow(label, value) {
+
+    const row = el("div", "info-row");
+    row.append(el("span", "info-label", label), el("span", "info-value", value));
+
+    return row;
+}
+
+function friendChips(users) {
+
+    const chips = el("div", "friend-chips");
+
+    users.forEach(f => {
+        const chip = el("button", "friend-chip");
+        chip.type = "button";
+        chip.append(avatarNode(f), el("span", null, f.full_name));
+        chip.addEventListener("click", () => openUserProfile(f.username));
+        chips.append(chip);
+    });
+
+    return chips;
+}
+
 function renderProfileModal(p) {
 
     const body = document.getElementById("userProfileBody");
     body.replaceChildren();
 
+    const isSelf = p.relationship === "self";
+
+    // ---- header: cover band, picture, name, bio
+    body.append(el("div", "profile-cover"));
+
     const top = el("div", "profile-top");
-    top.append(avatarNode(p, "large"), el("h2", null, p.full_name),
-        el("p", "profile-handle", "@" + p.username));
+    top.append(
+        avatarNode(p, "large"),
+        el("h2", null, p.full_name),
+        el("p", "profile-handle", "@" + p.username)
+    );
 
-    if (p.bio) top.append(el("p", "profile-bio", p.bio));
+    if (p.bio) {
+        top.append(el("p", "profile-bio", p.bio));
+    } else if (isSelf) {
+        top.append(el("p", "profile-bio placeholder", "No bio yet. Add one from Edit profile."));
+    }
 
-    if (p.joined) {
-        const when = new Date(p.joined).toLocaleDateString(undefined,
-            { month: "short", year: "numeric" });
-        top.append(el("p", "profile-joined", "Joined " + when));
+    if (p.info_hidden) {
+        const note = el("p", "profile-private");
+        note.append(iconNode("lock", 14), document.createTextNode(" Some details are private"));
+        top.append(note);
     }
 
     body.append(top);
 
+    // ---- numbers (a dash means this person keeps it private)
     const stats = el("div", "profile-stats");
     [
-        [p.friends_count, "Friends"],
-        [p.stats.games_played, "Games played"],
+        [p.friends_hidden ? "-" : p.friends_count, "Friends"],
+        [p.posts_count == null ? "-" : p.posts_count, "Posts"],
+        [p.stats.games_played, "Games"],
         [p.stats.wins, "Wins"]
     ].forEach(([value, label]) => {
         const cell = el("div", "stat-cell");
@@ -691,14 +760,20 @@ function renderProfileModal(p) {
     });
     body.append(stats);
 
-    // ---- actions for this relationship
+    // ---- the right action for this relationship
     const actions = el("div", "profile-actions");
 
-    if (p.relationship === "self") {
-        actions.append(actionButton("Go to my settings", "ghost", () => {
-            closeUserProfile();
-            showScreen("profile");
-        }));
+    if (isSelf) {
+        actions.append(
+            actionButton("Edit profile", "primary", () => {
+                closeUserProfile();
+                openEditProfile();
+            }),
+            actionButton("Settings", "ghost", () => {
+                closeUserProfile();
+                showScreen("profile");
+            })
+        );
 
     } else if (p.relationship === "friends" && social.confirmRemove === p.username) {
 
@@ -724,23 +799,33 @@ function renderProfileModal(p) {
 
     body.append(actions);
 
-    // ---- their friends
-    body.append(sectionTitle("Friends"));
+    // ---- about: only what this person lets you see
+    const about = el("div", "info-card");
+    about.append(infoRow("Username", "@" + p.username));
+    if (p.email) about.append(infoRow("Email", p.email));
+    if (p.joined) {
+        about.append(infoRow("Joined", new Date(p.joined).toLocaleDateString(
+            undefined, { month: "long", year: "numeric" })));
+    }
+    body.append(sectionTitle("About"), about);
 
-    if (p.friends.length === 0) {
+    // ---- friends, and the ones you share
+    body.append(sectionTitle(p.friends_hidden ? "Friends" : "Friends (" + p.friends_count + ")"));
+
+    if (p.friends_hidden) {
+        body.append(el("p", "muted-line", p.full_name + " keeps their friends list private."));
+    } else if (p.friends.length === 0) {
         body.append(el("p", "muted-line", "No friends to show yet."));
     } else {
-        const chips = el("div", "friend-chips");
-        p.friends.forEach(f => {
-            const chip = el("button", "friend-chip");
-            chip.type = "button";
-            chip.append(avatarNode(f), el("span", null, f.full_name));
-            chip.addEventListener("click", () => openUserProfile(f.username));
-            chips.append(chip);
-        });
-        body.append(chips);
+        body.append(friendChips(p.friends));
     }
 
+    if (!isSelf && p.mutual_friends.length) {
+        body.append(sectionTitle("Mutual friends (" + p.mutual_count + ")"),
+            friendChips(p.mutual_friends));
+    }
+
+    // ---- their posts (the same posts, likes and comments as the feed)
     if (typeof renderProfilePosts === "function") renderProfilePosts(p);
 }
 

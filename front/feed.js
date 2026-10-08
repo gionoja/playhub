@@ -88,11 +88,7 @@ function friendlyError(error) {
 
 function onFeedOpened() {
 
-    document.querySelectorAll(".avatar").forEach(a => {
-        a.textContent = (currentUser.name || "?").charAt(0).toUpperCase();
-    });
-
-    loadHome();
+    loadHome(true);
     refreshActivity();
 }
 
@@ -116,13 +112,19 @@ function onFeedClosed() {
         if (n) n.replaceChildren();
     });
 
-    renderStories();
+        renderStories(true);
     closeModal("postModal");
     closeModal("commentModal");
     closeModal("storyModal");
 }
 
-function loadHome() {
+// Switching tabs quickly does not refetch; pass true to force a refresh
+function loadHome(force) {
+
+    const fresh = feedState.loadedAt && Date.now() - feedState.loadedAt < 20000;
+
+    if (!force && fresh && posts.length) return;
+
     loadFeed();
     loadStories(true);
 }
@@ -136,37 +138,65 @@ function storePost(p) {
     return merged;
 }
 
-async function loadFeed() {
+let feedRequest = null;
 
-    feedState.loading = posts.length === 0;
-    feedState.error = null;
-    renderPosts();
+function feedSignature() {
+    return JSON.stringify(posts.map(p => [
+        p.id, p.like_count, p.comment_count, p.liked, p.author.avatar_url, p.author.full_name
+    ]));
+}
 
-    try {
-        const data = await api("/feed");
+// One request at a time: repeated calls share the one already running
+function loadFeed() {
 
-        posts = data.posts.map(storePost);
-        feedState.hasMore = data.has_more;
+    if (feedRequest) return feedRequest;
 
-    } catch (error) {
-        feedState.error = friendlyError(error);
-    }
+    feedRequest = (async () => {
 
-    feedState.loading = false;
-    renderPosts();
+        const before = feedSignature();
+
+        feedState.loading = posts.length === 0;
+        feedState.error = null;
+
+        if (feedState.loading) renderPosts();
+
+        try {
+            const data = await api("/feed");
+
+            posts = data.posts.map(storePost);
+            feedState.hasMore = data.has_more;
+            feedState.loadedAt = Date.now();
+
+        } catch (error) {
+            feedState.error = friendlyError(error);
+        }
+
+        feedState.loading = false;
+
+        // skip the redraw when nothing changed, so scrolling is never disturbed
+        if (feedState.error || feedSignature() !== before || !document.querySelector("#feedContainer .post-card")) {
+            renderPosts();
+        }
+
+    })().finally(() => { feedRequest = null; });
+
+    return feedRequest;
 }
 
 async function loadMorePosts() {
 
-    if (feedState.loadingMore || !posts.length) return;
+    if (feedState.loadingMore || !posts.length || !feedState.hasMore) return;
 
     feedState.loadingMore = true;
-    renderPosts();
+    setFooterLoading(true);
+
+    let fresh = [];
 
     try {
         const data = await api("/feed?before_id=" + posts[posts.length - 1].id);
 
-        posts = posts.concat(data.posts.map(storePost));
+        fresh = data.posts.map(storePost);
+        posts = posts.concat(fresh);
         feedState.hasMore = data.has_more;
 
     } catch (error) {
@@ -174,7 +204,63 @@ async function loadMorePosts() {
     }
 
     feedState.loadingMore = false;
-    renderPosts();
+    appendPosts(fresh);          // only the new cards are drawn
+}
+
+let feedObserver = null;
+
+// "Load more" button; it also loads by itself when scrolled near
+function feedFooter() {
+
+    const footer = el("div", "feed-footer");
+
+    if (feedState.hasMore) {
+        const more = actionButton(
+            feedState.loadingMore ? "Loading..." : "Load more posts",
+            "ghost", loadMorePosts, null, feedState.loadingMore
+        );
+        more.classList.add("load-more-posts");
+        footer.append(more);
+
+        if (typeof IntersectionObserver !== "undefined") {
+
+            if (!feedObserver) {
+                feedObserver = new IntersectionObserver(entries => {
+                    if (entries.some(e => e.isIntersecting)) loadMorePosts();
+                }, { rootMargin: "600px" });
+            }
+
+            feedObserver.disconnect();
+            feedObserver.observe(footer);
+        }
+    } else if (feedObserver) {
+        feedObserver.disconnect();
+    }
+
+    return footer;
+}
+
+function setFooterLoading(loading) {
+
+    const more = document.querySelector("#feedContainer .load-more-posts");
+
+    if (more) {
+        more.disabled = loading;
+        more.lastChild.textContent = loading ? "Loading..." : "Load more posts";
+    }
+}
+
+function appendPosts(list) {
+
+    const box = document.getElementById("feedContainer");
+
+    if (!box) return;
+
+    box.querySelector(".feed-footer")?.remove();
+
+    const frag = document.createDocumentFragment();
+    list.forEach(p => frag.append(postCard(p)));
+    box.append(frag, feedFooter());
 }
 
 function renderPosts() {
@@ -212,16 +298,9 @@ function renderPosts() {
         return;
     }
 
-    posts.forEach(p => box.append(postCard(p)));
-
-    if (feedState.hasMore) {
-        const more = actionButton(
-            feedState.loadingMore ? "Loading..." : "Load more posts",
-            "ghost", loadMorePosts, null, feedState.loadingMore
-        );
-        more.classList.add("load-more-posts");
-        box.append(more);
-    }
+    const frag = document.createDocumentFragment();
+    posts.forEach(p => frag.append(postCard(p)));
+    box.append(frag, feedFooter());
 }
 
 
@@ -279,10 +358,15 @@ function postCard(p) {
         link.target = "_blank";
         link.rel = "noopener noreferrer";
 
-        const img = el("img", "post-image");
-        img.src = API_URL + p.image_url;
+                const img = el("img", "post-image");
         img.alt = "Post image";
         img.loading = "lazy";
+        img.decoding = "async";
+        img.addEventListener("load", () => img.classList.add("loaded"));
+        img.addEventListener("error", () => {
+            link.replaceWith(el("div", "post-image-missing", "This image is unavailable"));
+        });
+        img.src = API_URL + p.image_url;
         link.append(img);
         card.append(link);
     }
@@ -341,10 +425,14 @@ async function deletePost(id) {
         posts = posts.filter(p => p.id !== id);
         postStore.delete(id);
 
-        document.querySelectorAll('.post-card[data-post-id="' + id + '"]')
+                document.querySelectorAll('.post-card[data-post-id="' + id + '"]')
             .forEach(n => n.remove());
 
-        renderPosts();
+        if (posts.length === 0) renderPosts();
+
+        if (currentUser.posts_count) currentUser.posts_count--;
+        updateProfile();
+
         showToast("Post deleted");
 
     } catch (error) {
@@ -509,13 +597,24 @@ async function createPost() {
 
         const post = await api("/posts", options);
 
-        posts.unshift(storePost(post));
+                posts.unshift(storePost(post));
+
+        currentUser.posts_count = (currentUser.posts_count || 0) + 1;
+        updateProfile();
+
 
         document.getElementById("postText").value = "";
         removeSelectedImage();
         closeModal("postModal");
 
-        renderPosts();
+                if (posts.length === 1) {
+            renderPosts();
+        } else {
+            const card = postCard(posts[0]);
+            card.classList.add("enter");
+            document.getElementById("feedContainer").prepend(card);
+        }
+
         showToast("Post published");
 
     } catch (error) {
@@ -605,7 +704,7 @@ function renderComments() {
             openUserProfile(c.author.username);
         });
 
-        top.append(name, el("small", null, timeAgo(c.created_at)));
+                top.append(avatarNode(c.author), name, el("small", null, timeAgo(c.created_at)));
 
         if (c.mine) {
             const del = el("button", "comment-delete", "Delete");
@@ -807,24 +906,44 @@ async function markActivityRead() {
 
 /* ================================ STORIES ========================== */
 
-async function loadStories(silent) {
+let storiesRequest = null;
 
-    try {
-        feedState.stories = await api("/stories");
-        feedState.storiesError = null;
-    } catch (error) {
-        feedState.storiesError = friendlyError(error);
-        if (!silent) showToast(feedState.storiesError);
-    }
+function loadStories(silent) {
 
-    renderStories();
+    if (storiesRequest) return storiesRequest;
+
+    storiesRequest = (async () => {
+
+        try {
+            feedState.stories = await api("/stories");
+            feedState.storiesError = null;
+        } catch (error) {
+            feedState.storiesError = friendlyError(error);
+            if (!silent) showToast(feedState.storiesError);
+        }
+
+        renderStories();
+
+    })().finally(() => { storiesRequest = null; });
+
+    return storiesRequest;
 }
 
-function renderStories() {
+let storiesSignature = null;
+
+function renderStories(force) {
 
     const bar = document.getElementById("storiesBar");
 
     if (!bar) return;
+
+    const signature = JSON.stringify(feedState.stories.map(g => [
+        g.user.username, g.user.avatar_url, g.all_viewed, g.stories.map(s => s.id)
+    ]));
+
+    if (!force && signature === storiesSignature) return;     // nothing changed
+
+    storiesSignature = signature;
 
     // keep the "add story" button, redraw the rest
     Array.from(bar.children).forEach(child => {

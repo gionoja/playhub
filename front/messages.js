@@ -46,7 +46,9 @@ function onMessagingOpened() {
     fetchUnread();
 
     clearInterval(chat.unreadTimer);
-    chat.unreadTimer = setInterval(fetchUnread, 10000);
+        chat.unreadTimer = setInterval(() => {
+        if (!document.hidden) fetchUnread();
+    }, 10000);
 }
 
 function onMessagingClosed() {
@@ -306,7 +308,9 @@ async function openChat(username) {
         renderChat();
         scrollChatToBottom(true);
 
-        chat.pollTimer = setInterval(pollChat, 3000);
+                chat.pollTimer = setInterval(() => {
+            if (!document.hidden) pollChat();
+        }, 3000);
 
         fetchUnread();
 
@@ -389,8 +393,10 @@ function renderChat() {
     status.textContent = c.loading ? "" : (c.user.online ? "Online" : "Offline");
     status.classList.toggle("online", !!c.user.online && !c.loading);
 
-    const avatar = document.getElementById("chatAvatar");
-    avatar.textContent = (c.user.full_name || c.user.username || "?").charAt(0).toUpperCase();
+        fillAvatar(document.getElementById("chatAvatar"), {
+        full_name: c.user.full_name || c.user.username,
+        avatar_url: c.user.avatar_url
+    });
 
     const box = document.getElementById("chatMessages");
     box.replaceChildren();
@@ -670,4 +676,11 @@ async function sendMessage() {
     chat.sending = false;
     sendBtn.disabled = false;
     input.focus();
+}
+
+
+// Tap the picture or name at the top of a chat to open that person's profile
+function openChatProfile() {
+
+    if (chat.open) openUserProfile(chat.open.user.username);
 }

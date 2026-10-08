@@ -11,7 +11,12 @@ let selectedImage = null;
 let currentUser = {
     name: "User",
     email: "user@example.com",
-    photo: null
+    photo: null,
+    username: "",
+    bio: "",
+    avatar_url: null,
+    friends_count: null,
+    posts_count: null
 };
 
 
@@ -26,7 +31,8 @@ let verifyEmail = "";
 
 
 function hideAuthPanels() {
-    ["loginForm", "signupForm", "verifyPending", "verifyDone"].forEach(id => {
+    ["loginForm", "signupForm", "verifyPending", "verifyDone",
+     "forgotForm", "resetForm", "resetDone"].forEach(id => {
         document.getElementById(id).classList.add("hidden");
     });
 }
@@ -34,6 +40,7 @@ function hideAuthPanels() {
 
 function showLogin() {
     stopVerifyPolling();
+    if (typeof stopResendTimer === "function") stopResendTimer();
     hideAuthPanels();
     document.getElementById("loginForm").classList.remove("hidden");
 }
@@ -41,6 +48,7 @@ function showLogin() {
 
 function showSignup() {
     stopVerifyPolling();
+    if (typeof stopResendTimer === "function") stopResendTimer();
     hideAuthPanels();
     document.getElementById("signupForm").classList.remove("hidden");
 }
@@ -80,9 +88,11 @@ async function login() {
 
         localStorage.setItem(TOKEN_KEY, data.token);
 
-        currentUser.name = data.user.full_name;
+                currentUser.name = data.user.full_name;
         currentUser.email = data.user.email;
         currentUser.username = data.user.username;
+        currentUser.avatar_url = data.user.avatar_url || null;
+
 
         document.getElementById("loginPassword").value = "";
 
@@ -117,9 +127,14 @@ async function restoreSession() {
 
         const data = await response.json();
 
-        currentUser.name = data.full_name;
+                currentUser.name = data.full_name;
         currentUser.email = data.email;
         currentUser.username = data.username;
+        currentUser.bio = data.bio || "";
+        currentUser.avatar_url = data.avatar_url || null;
+        currentUser.friends_count = data.friends_count;
+        currentUser.posts_count = data.posts_count;
+
 
         openApp();
 
@@ -584,14 +599,6 @@ function updateProfile() {
         .textContent = currentUser.email;
 
 
-    const avatar =
-        document.getElementById("profileAvatar");
-
-
-    avatar.textContent =
-        currentUser.name.charAt(0).toUpperCase();
-
-
     const username = document.getElementById("profileUsername");
 
     if (username) {
@@ -599,6 +606,32 @@ function updateProfile() {
             currentUser.username ? "@" + currentUser.username : "";
     }
 
+
+    const bio = document.getElementById("profileBio");
+
+    if (bio) {
+        bio.textContent = currentUser.bio || "";
+        bio.classList.toggle("hidden", !currentUser.bio);
+    }
+
+
+    const friends = document.getElementById("profileFriendsCount");
+    const postsCount = document.getElementById("profilePostsCount");
+
+    if (friends) friends.textContent = currentUser.friends_count ?? 0;
+    if (postsCount) postsCount.textContent = currentUser.posts_count ?? 0;
+
+
+    // profile picture (or the first letter of the name) wherever "you" appear
+    const me = { full_name: currentUser.name, avatar_url: currentUser.avatar_url };
+
+    document.querySelectorAll("#profileAvatar, .avatar").forEach(node => {
+        if (typeof fillAvatar === "function") {
+            fillAvatar(node, me);
+        } else {
+            node.textContent = (currentUser.name || "?").charAt(0).toUpperCase();
+        }
+    });
 }
 
 
@@ -612,35 +645,12 @@ function changeName() {
 }
 
 
-function saveName() {
-
-    const name =
-        document.getElementById("newName")
-            .value.trim();
-
-
-    if (!name) {
-
-        showToast("Enter your name");
-
-        return;
-    }
-
-
-    currentUser.name = name;
-
-    updateProfile();
-
-    renderPosts();
-
-    closeModal("nameModal");
-
-    showToast("Name updated");
-
-}
 
 
 function changePassword() {
+
+    if (typeof setMsg === "function") setMsg("passwordMsg", "");
+
 
     document.getElementById("passwordModal")
         .classList.remove("hidden");
@@ -648,31 +658,10 @@ function changePassword() {
 }
 
 
-function savePassword() {
-
-    closeModal("passwordModal");
-
-    showToast(
-        "Password updated in frontend demo"
-    );
-
-}
 
 
-function changeProfilePhoto() {
-
-    showToast(
-        "Profile photo upload will connect to the backend"
-    );
-
-}
 
 
-function openEditProfile() {
-
-    changeName();
-
-}
 
 
 /* ================= NOTIFICATIONS ================= */
@@ -745,14 +734,24 @@ async function signup() {
     const email =
         document.getElementById("signupEmail").value.trim();
 
-    const password =
+        const password =
         document.getElementById("signupPassword").value;
 
+    const confirm =
+        document.getElementById("signupConfirm").value;
 
-    if (!name || !email || !password) {
+
+
+        if (!name || !email || !password || !confirm) {
         showToast("Complete all fields");
         return;
     }
+
+    if (password !== confirm) {
+        showToast("Passwords do not match");
+        return;
+    }
+
 
 
     try {
@@ -788,7 +787,9 @@ async function signup() {
 
         document.getElementById("signupName").value = "";
         document.getElementById("signupEmail").value = "";
-        document.getElementById("signupPassword").value = "";
+                document.getElementById("signupPassword").value = "";
+        document.getElementById("signupConfirm").value = "";
+
 
 
         showVerifyPending(email);

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PlayHub</title>
-    <link rel="stylesheet" href="style.css?v=5">
+    <link rel="stylesheet" href="style.css?v=6">
 </head>
 
 <body>
@@ -22,7 +22,11 @@
             <h2>Welcome back</h2>
 
             <input type="email" id="loginEmail" placeholder="Email">
-            <input type="password" id="loginPassword" placeholder="Password">
+            <input type="password" id="loginPassword" placeholder="Password" autocomplete="current-password">
+
+            <div class="forgot-row">
+                <button type="button" class="link-btn" onclick="showForgotPassword()">Forgot password?</button>
+            </div>
 
             <button class="primary-btn" onclick="login()">Login</button>
 
@@ -37,7 +41,8 @@
 
             <input type="text" id="signupName" placeholder="Full name">
             <input type="email" id="signupEmail" placeholder="Email">
-            <input type="password" id="signupPassword" placeholder="Password">
+            <input type="password" id="signupPassword" placeholder="Password" autocomplete="new-password">
+            <input type="password" id="signupConfirm" placeholder="Confirm password" autocomplete="new-password">
 
             <button class="primary-btn" onclick="signup()">Create account</button>
 
@@ -86,6 +91,62 @@
 
             <button class="primary-btn" onclick="goToLoginAfterVerify()">Log in to PlayHub</button>
         </div>
+
+        <div id="forgotForm" class="hidden">
+            <h2>Forgot password?</h2>
+
+            <p class="auth-help">
+                Enter the email you signed up with and we'll send you a 6-digit code.
+            </p>
+
+            <input type="email" id="forgotEmail" placeholder="Email" autocomplete="email">
+
+            <p id="forgotMsg" class="form-msg hidden" role="alert"></p>
+
+            <button id="forgotSend" class="primary-btn" onclick="sendResetCode()">Send reset code</button>
+
+            <p class="switch-text">
+                <button onclick="showLogin()">Back to login</button>
+            </p>
+        </div>
+
+        <div id="resetForm" class="hidden">
+            <h2>Reset password</h2>
+
+            <p class="auth-help">
+                Enter the 6-digit code we sent to
+                <strong id="resetEmailText"></strong>
+                and choose a new password.
+            </p>
+
+            <input type="text" id="resetCode" inputmode="numeric" autocomplete="one-time-code"
+                maxlength="6" placeholder="6-digit code">
+            <input type="password" id="resetNewPassword" placeholder="New password (at least 8 characters)" autocomplete="new-password">
+            <input type="password" id="resetConfirmPassword" placeholder="Confirm new password" autocomplete="new-password">
+
+            <p id="resetMsg" class="form-msg hidden" role="alert"></p>
+
+            <button id="resetSubmit" class="primary-btn" onclick="submitReset()">Reset password</button>
+
+            <p class="switch-text">
+                <button id="resendCode" onclick="sendResetCode(true)">Resend code</button>
+                &middot;
+                <button onclick="showLogin()">Back to login</button>
+            </p>
+        </div>
+
+        <div id="resetDone" class="verify-state hidden">
+            <div class="verify-icon success"><svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></div>
+
+            <h2>Password updated</h2>
+
+            <p class="verify-text">
+                Your password was changed. Log in to PlayHub with your new password.
+            </p>
+
+            <button class="primary-btn" onclick="backToLoginAfterReset()">Log in to PlayHub</button>
+        </div>
+
     </div>
 </section>
 
@@ -377,13 +438,27 @@
 
             <h2 id="profileName">User</h2>
             <p id="profileUsername" class="profile-username"></p>
+            <p id="profileBio" class="profile-bio-line hidden"></p>
             <p id="profileEmail">user@example.com</p>
 
-            <button
-                class="secondary-btn"
-                onclick="openEditProfile()">
-                Edit profile
-            </button>
+            <div class="profile-stats two own-stats">
+                <div class="stat-cell"><strong id="profileFriendsCount">0</strong><small>Friends</small></div>
+                <div class="stat-cell"><strong id="profilePostsCount">0</strong><small>Posts</small></div>
+            </div>
+
+            <div class="own-profile-actions">
+                <button
+                    class="secondary-btn"
+                    onclick="openEditProfile()">
+                    Edit profile
+                </button>
+
+                <button
+                    class="secondary-btn"
+                    onclick="viewMyProfile()">
+                    View public profile
+                </button>
+            </div>
 
         </section>
 
@@ -472,12 +547,12 @@
                     Security & Privacy
                 </p>
 
-                <button onclick="showToast('Privacy settings coming soon')">
+                <button onclick="openPrivacySettings()">
                     <span><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg></span>
 
                     <div>
                         <strong>Privacy</strong>
-                        <small>Control who can interact with you</small>
+                        <small>Control who can see your information</small>
                     </div>
 
                     <span><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></span>
@@ -842,20 +917,29 @@
 
         <input
             type="password"
-            placeholder="Current password">
+            id="currentPassword"
+            placeholder="Current password"
+            autocomplete="current-password">
 
 
         <input
             type="password"
-            placeholder="New password">
+            id="newPassword"
+            placeholder="New password (at least 8 characters)"
+            autocomplete="new-password">
 
 
         <input
             type="password"
-            placeholder="Confirm new password">
+            id="confirmNewPassword"
+            placeholder="Confirm new password"
+            autocomplete="new-password">
+
+        <p id="passwordMsg" class="form-msg hidden" role="alert"></p>
 
 
         <button
+            id="passwordSave"
             class="primary-btn"
             onclick="savePassword()">
 
@@ -905,7 +989,7 @@
 
 <div id="userProfileModal" class="modal hidden">
 
-    <div class="modal-content">
+    <div class="modal-content profile-sheet">
 
         <div class="modal-header">
 
@@ -949,12 +1033,17 @@
 
             <button class="chat-icon-btn" onclick="closeChat()" aria-label="Back to messages"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg></button>
 
-            <div id="chatAvatar" class="person-avatar"></div>
+            <button type="button" class="chat-profile-link" onclick="openChatProfile()"
+                aria-label="View profile">
 
-            <div class="chat-title">
-                <strong id="chatName"></strong>
-                <small id="chatStatus"></small>
-            </div>
+                <div id="chatAvatar" class="person-avatar"></div>
+
+                <div class="chat-title">
+                    <strong id="chatName"></strong>
+                    <small id="chatStatus"></small>
+                </div>
+
+            </button>
 
         </header>
 
@@ -1067,10 +1156,125 @@
 </div>
 
 
-<script src="app.js?v=5"></script>
-<script src="social.js?v=5"></script>
-<script src="messages.js?v=5"></script>
-<script src="feed.js?v=5"></script>
+<div id="editProfileModal" class="modal hidden">
+
+    <div class="modal-content">
+
+        <div class="modal-header">
+
+            <h2 id="editProfileTitle">Edit profile</h2>
+
+            <button onclick="closeEditProfile()" aria-label="Close"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+
+        </div>
+
+        <p id="editProfileIntro" class="auth-help hidden">
+            Add a photo and a short bio so your friends can recognise you.
+        </p>
+
+        <div class="edit-avatar">
+
+            <div id="editAvatar" class="profile-avatar"></div>
+
+            <div class="edit-avatar-actions">
+
+                <button id="uploadAvatarBtn" class="pbtn primary" type="button"
+                    onclick="document.getElementById('avatarInput').click()"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg> Upload photo</button>
+
+                <button id="removeAvatarBtn" class="pbtn ghost hidden" type="button"
+                    onclick="removeAvatar()">Remove photo</button>
+
+                <small>JPG, PNG, GIF or WebP, up to 5 MB</small>
+
+            </div>
+
+            <input type="file" id="avatarInput" class="hidden"
+                accept="image/jpeg,image/png,image/gif,image/webp"
+                onchange="onAvatarPicked(event)">
+
+        </div>
+
+        <label class="field-label" for="editName">Full name</label>
+        <input type="text" id="editName" maxlength="100" placeholder="Your name">
+
+        <label class="field-label" for="editBio">Bio</label>
+        <textarea id="editBio" rows="3" maxlength="160"
+            placeholder="Software developer | Gamer | Football fan"
+            oninput="updateBioCount()"></textarea>
+        <div class="char-count" id="editBioCount">0/160</div>
+
+        <p id="editProfileMsg" class="form-msg hidden" role="alert"></p>
+
+        <button id="editProfileSave" class="primary-btn" onclick="saveProfile()">Save changes</button>
+
+        <button id="editProfileCancel" class="secondary-btn cancel-post-btn"
+            onclick="closeEditProfile()">Cancel</button>
+
+    </div>
+
+</div>
+
+
+<div id="privacyModal" class="modal hidden">
+
+    <div class="modal-content">
+
+        <div class="modal-header">
+
+            <h2>Privacy</h2>
+
+            <button onclick="closeModal('privacyModal')" aria-label="Close"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+
+        </div>
+
+        <p class="auth-help">
+            Choose who can see your information. Your email is private unless you change it.
+            You can always see everything on your own profile.
+        </p>
+
+        <div class="priv-row">
+            <label for="privEmail">Who can see my email</label>
+            <select id="privEmail">
+                <option value="only_me">Only me</option>
+                <option value="friends">Friends</option>
+                <option value="everyone">Everyone</option>
+            </select>
+        </div>
+
+        <div class="priv-row">
+            <label for="privFriends">Who can see my friends list</label>
+            <select id="privFriends">
+                <option value="everyone">Everyone</option>
+                <option value="friends">Friends</option>
+                <option value="only_me">Only me</option>
+            </select>
+        </div>
+
+        <div class="priv-row">
+            <label for="privInfo">Who can see my bio and join date</label>
+            <select id="privInfo">
+                <option value="everyone">Everyone</option>
+                <option value="friends">Friends</option>
+                <option value="only_me">Only me</option>
+            </select>
+        </div>
+
+        <p class="auth-help">Your posts and stories are always shared with friends only.</p>
+
+        <p id="privacyMsg" class="form-msg hidden" role="alert"></p>
+
+        <button id="privacySave" class="primary-btn" onclick="savePrivacy()">Save</button>
+
+    </div>
+
+</div>
+
+
+<script src="app.js?v=6"></script>
+<script src="social.js?v=6"></script>
+<script src="messages.js?v=6"></script>
+<script src="feed.js?v=6"></script>
+<script src="profile.js?v=6"></script>
 
 </body>
 </html>
