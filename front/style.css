@@ -2523,3 +2523,602 @@ button {
         align-items: flex-start;
     }
 }
+
+
+/* ================= 8-BALL POOL ================= */
+
+.pool-sheet {
+    max-width: 440px;
+}
+
+.pool-hero {
+    text-align: center;
+    margin-bottom: 14px;
+}
+
+.pool-art {
+    width: 100%;
+    max-width: 280px;
+    margin-bottom: 8px;
+    filter: drop-shadow(0 8px 14px rgba(0, 0, 0, 0.25));
+}
+
+.pool-hero h3 {
+    margin-bottom: 6px;
+}
+
+.pool-hero p {
+    color: var(--muted);
+    line-height: 1.5;
+}
+
+.pool-note {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin-bottom: 16px;
+    color: var(--muted);
+    font-size: 13px;
+    text-align: center;
+}
+
+.pool-wide {
+    width: 100%;
+    justify-content: center;
+    margin-top: 10px;
+    padding: 13px 14px;
+}
+
+.pool-two {
+    display: flex;
+    gap: 10px;
+    margin-top: 16px;
+}
+
+.pool-two .pbtn {
+    flex: 1;
+    justify-content: center;
+    padding: 12px 14px;
+}
+
+.pool-chip {
+    display: inline-block;
+    margin: 6px 0 14px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.verify-icon.bad {
+    background: rgba(229, 57, 53, 0.12);
+    color: var(--danger);
+}
+
+.pool-rules {
+    margin: 0 0 14px 20px;
+    line-height: 1.5;
+    color: var(--muted);
+}
+
+.pool-rules li {
+    margin-bottom: 10px;
+}
+
+.pool-rules strong {
+    color: var(--text);
+}
+
+.pool-resume {
+    position: fixed;
+    right: 16px;
+    bottom: 92px;
+    z-index: 80;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 18px;
+    border-radius: 999px;
+    background: var(--primary);
+    color: white;
+    font-weight: 700;
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.3);
+    animation: card-in 0.3s ease;
+}
+
+.pool-resume:hover {
+    background: var(--primary-dark);
+}
+
+.pool-view {
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    display: flex;
+    justify-content: center;
+    background: var(--bg);
+    overflow-y: auto;
+}
+
+.pool-panel {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 1040px;
+    min-height: 100%;
+    padding: 0 12px 12px;
+}
+
+.pool-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0;
+}
+
+.pool-status {
+    flex: 1;
+    min-width: 0;
+}
+
+.pool-status strong,
+.pool-status small {
+    display: block;
+}
+
+.pool-status small {
+    color: #12a150;
+    font-size: 12px;
+}
+
+.pool-status small.bad {
+    color: var(--danger);
+}
+
+.pool-players {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.pool-player {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: var(--card);
+    border: 2px solid var(--border);
+    border-radius: 16px;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.pool-player.turn {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 4px rgba(91, 75, 255, 0.14);
+}
+
+.pool-player-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.pool-player-info strong,
+.pool-player-info small {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pool-player-info small {
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.pool-dots {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    margin-top: 4px;
+}
+
+.pool-dot {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: var(--c);
+    border: 1px solid rgba(0, 0, 0, 0.25);
+}
+
+.pool-dot.stripe {
+    background: linear-gradient(#fff 0 28%, var(--c) 28% 72%, #fff 72%);
+}
+
+.pool-dot.gone {
+    opacity: 0.18;
+}
+
+.pool-turn {
+    flex-shrink: 0;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--primary);
+}
+
+.pool-message {
+    min-height: 22px;
+    margin-bottom: 8px;
+    text-align: center;
+    color: var(--muted);
+    line-height: 1.4;
+}
+
+.pool-stage {
+    position: relative;
+    display: flex;
+    justify-content: center;
+}
+
+.pool-stage canvas {
+    display: block;
+    border-radius: 18px;
+    touch-action: none;
+    cursor: crosshair;
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
+}
+
+.pool-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 20px;
+    background: rgba(0, 0, 0, 0.62);
+    border-radius: 18px;
+    color: white;
+    text-align: center;
+    animation: fade-in 0.2s ease;
+}
+
+.pool-overlay h3 {
+    font-size: 22px;
+}
+
+.pool-overlay p {
+    max-width: 340px;
+    opacity: 0.9;
+    line-height: 1.5;
+}
+
+.pool-controls {
+    display: grid;
+    grid-template-columns: 1.3fr 1fr auto;
+    gap: 14px;
+    align-items: end;
+    margin-top: 12px;
+    padding: 12px 14px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    transition: opacity 0.2s ease;
+}
+
+.pool-controls.disabled {
+    opacity: 0.55;
+}
+
+.pool-ctl {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.pool-ctl label {
+    flex-shrink: 0;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--muted);
+}
+
+.pool-ctl input[type="range"] {
+    flex: 1;
+    min-width: 0;
+    accent-color: var(--primary);
+}
+
+.pool-ctl:nth-child(2) {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+}
+
+.pool-ctl:nth-child(2) label span {
+    color: var(--text);
+}
+
+.pool-buttons {
+    gap: 8px;
+}
+
+.pool-buttons .primary-btn {
+    width: auto;
+    min-width: 110px;
+    padding: 13px 22px;
+}
+
+.pool-hint {
+    margin-top: 8px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+    min-height: 18px;
+}
+
+.pool-rotate {
+    display: none;
+    text-align: center;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.pool-confirm {
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    top: 90px;
+    z-index: 5;
+    max-width: 420px;
+    margin: 0 auto;
+    padding: 20px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.35);
+    text-align: center;
+    animation: modal-in 0.2s ease;
+}
+
+.pool-confirm p {
+    margin-top: 6px;
+    color: var(--muted);
+    line-height: 1.5;
+}
+
+
+/* ---- result screens ---- */
+
+.pool-result {
+    position: absolute;
+    inset: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: rgba(8, 10, 14, 0.78);
+    overflow-y: auto;
+    animation: fade-in 0.4s ease;
+}
+
+.pool-result-card {
+    position: relative;
+    z-index: 2;
+    width: 100%;
+    max-width: 440px;
+    padding: 26px 22px 22px;
+    text-align: center;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+    animation: result-in 0.5s cubic-bezier(0.2, 1.2, 0.35, 1);
+}
+
+.pool-result.win .pool-result-card {
+    box-shadow: 0 0 0 2px rgba(244, 194, 13, 0.55), 0 0 60px rgba(244, 194, 13, 0.28),
+        0 24px 60px rgba(0, 0, 0, 0.45);
+}
+
+.pool-result-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 64px;
+    height: 64px;
+    margin-bottom: 8px;
+    border-radius: 50%;
+    background: var(--bg);
+    color: var(--muted);
+}
+
+.pool-result.win .pool-result-icon {
+    background: linear-gradient(135deg, #f4c20d, #ef6c00);
+    color: white;
+    animation: trophy-pop 0.7s cubic-bezier(0.2, 1.4, 0.35, 1) 0.15s both;
+}
+
+.pool-result-title {
+    font-size: 34px;
+    letter-spacing: 1px;
+    margin-bottom: 14px;
+}
+
+.pool-result.win .pool-result-title {
+    background: linear-gradient(90deg, #f4c20d, #ef6c00, #f4c20d);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+.pool-result.loss .pool-result-title {
+    color: var(--muted);
+    font-weight: 700;
+}
+
+.pool-faces {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    margin-bottom: 8px;
+}
+
+.pool-faces .person-avatar.large {
+    margin: 0;
+    width: 74px;
+    height: 74px;
+}
+
+.pool-faces .person-avatar.winner {
+    box-shadow: 0 0 0 4px #f4c20d;
+    animation: ring-pulse 1.8s ease-in-out infinite;
+}
+
+.pool-vs {
+    color: var(--muted);
+    font-weight: 700;
+}
+
+.pool-names {
+    display: flex;
+    justify-content: space-around;
+    gap: 10px;
+    margin-bottom: 12px;
+    font-size: 14px;
+}
+
+.pool-reason {
+    margin-bottom: 6px;
+    line-height: 1.5;
+}
+
+.pool-meta {
+    margin-bottom: 14px;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.pool-stats-table {
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+}
+
+.pool-stat-row {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr 1fr;
+    padding: 9px 12px;
+    border-top: 1px solid var(--border);
+    font-size: 14px;
+}
+
+.pool-stat-row:first-child {
+    border-top: none;
+}
+
+.pool-stat-row.head {
+    background: var(--bg);
+    font-weight: 700;
+}
+
+.pool-stat-row span:not(:first-child) {
+    text-align: center;
+}
+
+.pool-stat-row span:first-child {
+    text-align: left;
+    color: var(--muted);
+}
+
+.pool-stat-row.head span:first-child {
+    color: inherit;
+}
+
+.pool-confetti {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+@keyframes result-in {
+    from { opacity: 0; transform: translateY(24px) scale(0.92); }
+    to { opacity: 1; transform: none; }
+}
+
+@keyframes trophy-pop {
+    from { opacity: 0; transform: scale(0.3) rotate(-18deg); }
+    to { opacity: 1; transform: none; }
+}
+
+@keyframes ring-pulse {
+    50% { box-shadow: 0 0 0 8px rgba(244, 194, 13, 0.35); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pool-result,
+    .pool-result-card,
+    .pool-result.win .pool-result-icon,
+    .pool-faces .person-avatar.winner,
+    .pool-overlay,
+    .pool-resume,
+    .pool-confirm {
+        animation: none;
+    }
+}
+
+@media (max-width: 760px) {
+    .pool-controls {
+        grid-template-columns: 1fr;
+        gap: 10px;
+    }
+
+    .pool-buttons {
+        justify-content: flex-end;
+    }
+
+    .pool-players {
+        grid-template-columns: 1fr;
+        gap: 6px;
+    }
+
+    .pool-player {
+        padding: 8px 10px;
+    }
+
+    .pool-dots {
+        display: none;
+    }
+}
+
+@media (max-width: 650px) and (orientation: portrait) {
+    .pool-rotate {
+        display: block;
+    }
+
+    .pool-result-title {
+        font-size: 28px;
+    }
+}
+
+@media (max-height: 520px) and (orientation: landscape) {
+    .pool-players {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .pool-message,
+    .pool-hint {
+        display: none;
+    }
+}

@@ -346,6 +346,13 @@ function loadTheme() {
 
 function openGame(gameName) {
 
+    // Snooker is the real two-player 8-ball pool game (pool.js)
+    if (gameName === "Snooker" && typeof openPoolLobby === "function") {
+        openPoolLobby();
+        return;
+    }
+
+
     document.getElementById("gameModalTitle")
         .textContent = gameName;
 

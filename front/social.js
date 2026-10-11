@@ -176,7 +176,10 @@ async function api(path, options = {}) {
     }
 
     if (!response.ok) {
-        throw new Error(data.message || "Something went wrong");
+                const failure = new Error(data.message || "Something went wrong");
+        failure.status = response.status;
+        failure.data = data;
+        throw failure;
     }
 
     return data;
@@ -200,7 +203,9 @@ function onAppOpened() {
 
         if (typeof onFeedOpened === "function") onFeedOpened();
 
-    if (typeof onProfileOpened === "function") onProfileOpened();
+        if (typeof onProfileOpened === "function") onProfileOpened();
+
+    if (typeof onGamesOpened === "function") onGamesOpened();
 }
 
 function onLoggedOut() {
@@ -211,7 +216,10 @@ function onLoggedOut() {
 
         if (typeof onFeedClosed === "function") onFeedClosed();
 
-    if (typeof onProfileClosed === "function") onProfileClosed();
+        if (typeof onProfileClosed === "function") onProfileClosed();
+
+    if (typeof onGamesClosed === "function") onGamesClosed();
+
 
 
     const input = document.getElementById("userSearchInput");
@@ -351,7 +359,9 @@ function updateBadges() {
 
     const count = social.incoming.length;
 
-    const activity = typeof unreadActivityCount === "function" ? unreadActivityCount() : 0;
+        const activity = (typeof unreadActivityCount === "function" ? unreadActivityCount() : 0)
+        + (typeof pendingChallengeCount === "function" ? pendingChallengeCount() : 0);
+
 
     const bell = document.getElementById("notifBadge");
     if (bell) bell.classList.toggle("hidden", count + activity === 0);
@@ -868,8 +878,12 @@ function renderNotifications() {
         list.append(item);
     });
 
-    const activity = typeof appendActivityNotifications === "function"
-        ? appendActivityNotifications(list) : 0;
+        const challenges = typeof appendChallengeNotifications === "function"
+        ? appendChallengeNotifications(list) : 0;
+
+    const activity = challenges + (typeof appendActivityNotifications === "function"
+        ? appendActivityNotifications(list) : 0);
+
 
     empty.classList.toggle("hidden", social.incoming.length + activity > 0);
 }
