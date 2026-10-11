@@ -320,6 +320,114 @@ class PasswordReset(db.Model):
     used_at = db.Column(db.DateTime, nullable=True)
 
 
+class GameChallenge(db.Model):
+    """An invitation to play. status: pending | accepted | declined | cancelled | expired
+
+    Only one pending challenge can exist between two people (either direction);
+    the database enforces that with a partial unique index."""
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    game = db.Column(db.String(20), nullable=False, default="pool8")
+
+    challenger_id = db.Column(
+        db.Integer, db.ForeignKey("user.id"), nullable=False, index=True
+    )
+    opponent_id = db.Column(
+        db.Integer, db.ForeignKey("user.id"), nullable=False, index=True
+    )
+
+    # "<smaller user id>:<larger user id>"
+    pair_key = db.Column(db.String(32), nullable=False)
+
+    stake = db.Column(db.Integer, nullable=False, default=0)    # 0 = free demo match
+
+    status = db.Column(db.String(12), nullable=False, default="pending")
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    responded_at = db.Column(db.DateTime, nullable=True)
+
+    match_id = db.Column(db.Integer, nullable=True)
+    rematch_of_match_id = db.Column(db.Integer, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("challenger_id != opponent_id", name="ck_challenge_not_self"),
+        Index(
+            "uq_game_challenge_pending_pair",
+            "pair_key",
+            unique=True,
+            sqlite_where=text("status = 'pending'"),
+        ),
+    )
+
+
+class GameMatch(db.Model):
+    """A two-player match. The two player columns are the only two seats.
+
+    status: waiting (both must press ready) | active | completed | cancelled
+    The whole table lives in state_json and only the server changes it.
+    version goes up on every change, so a stale or repeated request is rejected."""
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    game = db.Column(db.String(20), nullable=False, default="pool8")
+    challenge_id = db.Column(db.Integer, nullable=True)
+
+    player1_id = db.Column(
+        db.Integer, db.ForeignKey("user.id"), nullable=False, index=True
+    )
+    player2_id = db.Column(
+        db.Integer, db.ForeignKey("user.id"), nullable=False, index=True
+    )
+
+    status = db.Column(db.String(12), nullable=False, default="waiting", index=True)
+
+    stake = db.Column(db.Integer, nullable=False, default=0)
+    # none = free match, nothing to settle. Money is never moved by this table.
+    settlement_status = db.Column(db.String(16), nullable=False, default="none")
+
+    state_json = db.Column(db.Text, nullable=False)
+    last_shot_json = db.Column(db.Text, nullable=True)
+    version = db.Column(db.Integer, nullable=False, default=0)
+
+    winner_slot = db.Column(db.Integer, nullable=True)
+    win_reason = db.Column(db.String(160), nullable=True)
+
+    p1_ready = db.Column(db.Boolean, nullable=False, default=False)
+    p2_ready = db.Column(db.Boolean, nullable=False, default=False)
+    p1_seen = db.Column(db.DateTime, nullable=True)
+    p2_seen = db.Column(db.DateTime, nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    started_at = db.Column(db.DateTime, nullable=True)
+    ended_at = db.Column(db.DateTime, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("player1_id != player2_id", name="ck_match_two_different_players"),
+    )
+
+
+class GameShot(db.Model):
+    """One row per accepted shot: who, aim and result. Kept as an audit trail."""
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    match_id = db.Column(
+        db.Integer, db.ForeignKey("game_match.id"), nullable=False, index=True
+    )
+    seq = db.Column(db.Integer, nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+
+    angle = db.Column(db.Float, nullable=False)
+    power = db.Column(db.Float, nullable=False)
+
+    foul = db.Column(db.Boolean, nullable=False, default=False)
+    pocketed = db.Column(db.String(60), nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
 def delete_user_completely(user):
     """Delete a user together with everything that points at them.
     The caller commits."""
@@ -383,6 +491,21 @@ def delete_user_completely(user):
         delete_upload_files([s.image_filename for s in stories], STORY_DIR)
 
     StoryView.query.filter_by(viewer_id=uid).delete(synchronize_session=False)
+
+    # Their game challenges, matches and shots
+    GameChallenge.query.filter(
+        or_(GameChallenge.challenger_id == uid, GameChallenge.opponent_id == uid)
+    ).delete(synchronize_session=False)
+
+    match_ids = [
+        g.id for g in GameMatch.query.filter(
+            or_(GameMatch.player1_id == uid, GameMatch.player2_id == uid)
+        ).all()
+    ]
+
+    if match_ids:
+        GameShot.query.filter(GameShot.match_id.in_(match_ids)).delete(synchronize_session=False)
+        GameMatch.query.filter(GameMatch.id.in_(match_ids)).delete(synchronize_session=False)
 
     PrivacySetting.query.filter_by(user_id=uid).delete(synchronize_session=False)
     PasswordReset.query.filter_by(user_id=uid).delete(synchronize_session=False)

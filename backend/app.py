@@ -26,6 +26,7 @@ from accounts import accounts_bp
 from profiles import avatar_url
 from feed import feed_bp
 from messaging import messages_bp
+from games import games_bp
 from verify_page import render_verify_page
 
 load_dotenv()
@@ -60,6 +61,7 @@ app.register_blueprint(social_bp)
 app.register_blueprint(accounts_bp)
 app.register_blueprint(feed_bp)
 app.register_blueprint(messages_bp)
+app.register_blueprint(games_bp)
 
 
 with app.app_context():
