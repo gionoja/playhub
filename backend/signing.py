@@ -20,10 +20,10 @@ def _signature(kind, filename, viewer_id, bucket):
     return hmac.new(secret, message, hashlib.sha256).hexdigest()[:32]
 
 
-def signed_url(kind, filename, viewer_id):
+def signed_url(kind, filename, viewer_id, segment="images"):
     bucket = int(time.time() // BUCKET_SECONDS)
     sig = _signature(kind, filename, viewer_id, bucket)
-    return f"/{kind}/images/{filename}?u={viewer_id}&b={bucket}&s={sig}"
+    return f"/{kind}/{segment}/{filename}?u={viewer_id}&b={bucket}&s={sig}"
 
 
 def verified_viewer(kind, filename):

@@ -193,9 +193,21 @@ class Post(db.Model):
     content = db.Column(db.String(2000), nullable=True)
     image_filename = db.Column(db.String(64), nullable=True, index=True)
 
+    # added later: older databases get these columns from ensure_columns()
+    video_filename = db.Column(db.String(64), nullable=True)
+    edited_at = db.Column(db.DateTime, nullable=True)
+
+    # Sent by the browser once per post. If the same request arrives twice (a
+    # double tap, a retry after a dropped connection) only one post is created.
+    client_token = db.Column(db.String(40), nullable=True)
+
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
 
     author = db.relationship("User", foreign_keys=[user_id])
+
+    __table_args__ = (
+        Index("ix_post_user_token", "user_id", "client_token", unique=True),
+    )
 
 
 class PostLike(db.Model):
@@ -428,6 +440,107 @@ class GameShot(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
+class SavedPost(db.Model):
+    """A post someone bookmarked for later."""
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+    post_id = db.Column(db.Integer, db.ForeignKey("post.id"), nullable=False, index=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "post_id", name="uq_saved_post_pair"),
+    )
+
+
+class HiddenPost(db.Model):
+    """A post someone chose not to see again. Only hides it for them."""
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+    post_id = db.Column(db.Integer, db.ForeignKey("post.id"), nullable=False, index=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "post_id", name="uq_hidden_post_pair"),
+    )
+
+
+class PostReport(db.Model):
+    """A report about a post, for the admin to review. reason: spam | nudity |
+    violence | harassment | false_info | other"""
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    reporter_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+    post_id = db.Column(db.Integer, db.ForeignKey("post.id"), nullable=False, index=True)
+
+    reason = db.Column(db.String(20), nullable=False)
+    details = db.Column(db.String(200), nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("reporter_id", "post_id", name="uq_post_report_pair"),
+    )
+
+
+def ensure_columns():
+    """Add columns that newer versions of the app need to tables made by older
+    versions. Safe to run every start: it only adds what is missing and never
+    touches existing data."""
+    from sqlalchemy import inspect
+
+    wanted = {
+        "post": [
+            ("video_filename", "VARCHAR(64)"),
+            ("edited_at", "DATETIME"),
+            ("client_token", "VARCHAR(40)"),
+        ],
+    }
+
+    inspector = inspect(db.engine)
+
+    for table, columns in wanted.items():
+        if not inspector.has_table(table):
+            continue
+
+        existing = {c["name"] for c in inspector.get_columns(table)}
+
+        for name, ddl in columns:
+            if name not in existing:
+                db.session.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+
+        db.session.commit()
+
+    # indexes that older databases do not have yet (NULL tokens never clash)
+    if inspector.has_table("post"):
+        db.session.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_post_user_token ON post (user_id, client_token)"
+        ))
+        db.session.commit()
+
+
+def delete_post_completely(post):
+    """Remove a post and everything attached to it. The caller commits."""
+    pid = post.id
+
+    PostLike.query.filter_by(post_id=pid).delete(synchronize_session=False)
+    PostComment.query.filter_by(post_id=pid).delete(synchronize_session=False)
+    Notification.query.filter_by(post_id=pid).delete(synchronize_session=False)
+    SavedPost.query.filter_by(post_id=pid).delete(synchronize_session=False)
+    HiddenPost.query.filter_by(post_id=pid).delete(synchronize_session=False)
+    PostReport.query.filter_by(post_id=pid).delete(synchronize_session=False)
+
+    delete_upload_files([post.image_filename, post.video_filename], POST_DIR)
+
+    db.session.delete(post)
+
+
 def delete_user_completely(user):
     """Delete a user together with everything that points at them.
     The caller commits."""
@@ -471,8 +584,17 @@ def delete_user_completely(user):
         PostLike.query.filter(PostLike.post_id.in_(post_ids)).delete(synchronize_session=False)
         PostComment.query.filter(PostComment.post_id.in_(post_ids)).delete(synchronize_session=False)
         Notification.query.filter(Notification.post_id.in_(post_ids)).delete(synchronize_session=False)
+        SavedPost.query.filter(SavedPost.post_id.in_(post_ids)).delete(synchronize_session=False)
+        HiddenPost.query.filter(HiddenPost.post_id.in_(post_ids)).delete(synchronize_session=False)
+        PostReport.query.filter(PostReport.post_id.in_(post_ids)).delete(synchronize_session=False)
         Post.query.filter(Post.id.in_(post_ids)).delete(synchronize_session=False)
-        delete_upload_files([p.image_filename for p in posts], POST_DIR)
+        delete_upload_files(
+            [p.image_filename for p in posts] + [p.video_filename for p in posts], POST_DIR)
+
+    # What they saved, hid or reported
+    SavedPost.query.filter_by(user_id=uid).delete(synchronize_session=False)
+    HiddenPost.query.filter_by(user_id=uid).delete(synchronize_session=False)
+    PostReport.query.filter_by(reporter_id=uid).delete(synchronize_session=False)
 
     # Their likes, comments and notifications on other people's posts
     PostLike.query.filter_by(user_id=uid).delete(synchronize_session=False)

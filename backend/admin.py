@@ -14,7 +14,9 @@ from datetime import datetime
 from flask import Blueprint, Response, abort, jsonify, request
 
 from database import db
-from models import User, delete_user_completely
+from models import (
+    Post, PostReport, User, delete_post_completely, delete_user_completely
+)
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 
@@ -96,6 +98,83 @@ def purge_expired():
     return jsonify({"message": f"{removed} expired account(s) deleted", "removed": removed})
 
 
+@admin_bp.route("/api/reports")
+def list_reports():
+    """Reported posts, most reported first, with every reason given."""
+    reports = PostReport.query.order_by(PostReport.id.asc()).all()
+
+    by_post = {}
+
+    for r in reports:
+        by_post.setdefault(r.post_id, []).append(r)
+
+    posts = {
+        p.id: p for p in Post.query.filter(Post.id.in_(list(by_post))).all()
+    } if by_post else {}
+
+    users = {
+        u.id: u for u in User.query.filter(
+            User.id.in_([p.user_id for p in posts.values()]
+                        + [r.reporter_id for r in reports])
+        ).all()
+    } if reports else {}
+
+    result = []
+
+    for post_id, items in by_post.items():
+        post = posts.get(post_id)
+
+        if not post:
+            continue
+
+        author = users.get(post.user_id)
+
+        result.append({
+            "post_id": post_id,
+            "author": author.username if author else "(deleted)",
+            "text": (post.content or "")[:300],
+            "has_image": bool(post.image_filename),
+            "has_video": bool(post.video_filename),
+            "count": len(items),
+            "first_reported": items[0].created_at.isoformat() + "Z",
+            "reports": [
+                {
+                    "reason": r.reason,
+                    "details": r.details or "",
+                    "by": users[r.reporter_id].username if r.reporter_id in users else "(deleted)",
+                }
+                for r in items
+            ],
+        })
+
+    result.sort(key=lambda r: (-r["count"], r["first_reported"]))
+
+    return jsonify(result)
+
+
+@admin_bp.route("/api/reports/<int:post_id>/dismiss", methods=["POST"])
+def dismiss_reports(post_id):
+    """The post is fine: clear the reports against it."""
+    PostReport.query.filter_by(post_id=post_id).delete(synchronize_session=False)
+    db.session.commit()
+
+    return jsonify({"message": "Reports dismissed"})
+
+
+@admin_bp.route("/api/posts/<int:post_id>", methods=["DELETE"])
+def remove_post(post_id):
+    """Take a post down (its likes, comments, reports and media go with it)."""
+    post = db.session.get(Post, post_id)
+
+    if not post:
+        return jsonify({"message": "Post not found"}), 404
+
+    delete_post_completely(post)
+    db.session.commit()
+
+    return jsonify({"message": "Post removed"})
+
+
 @admin_bp.route("/")
 def admin_page():
     return Response(ADMIN_HTML, mimetype="text/html")
@@ -153,6 +232,15 @@ ADMIN_HTML = """<!DOCTYPE html>
            background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 8px;
            opacity: 0; pointer-events: none; transition: opacity .2s; }
   #toast.show { opacity: 1; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 14px; }
+  .tabs button.active { background: var(--brand); color: #fff; border-color: var(--brand); }
+  .report { padding: 14px; border-bottom: 1px solid var(--line); }
+  .report:last-child { border-bottom: 0; }
+  .report .top { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+  .report .text { margin: 8px 0; white-space: pre-wrap; word-break: break-word; }
+  .report .meta { color: var(--muted); font-size: 13px; }
+  .report ul { margin: 8px 0 0 18px; color: var(--muted); font-size: 14px; }
+  .actions { display: flex; gap: 8px; }
 </style>
 </head>
 <body>
@@ -162,6 +250,17 @@ ADMIN_HTML = """<!DOCTYPE html>
 </header>
 
 <main>
+  <div class="tabs">
+    <button id="tabUsers" class="active">Users</button>
+    <button id="tabReports">Reports <span id="reportCount"></span></button>
+  </div>
+
+  <section id="reportsPanel" hidden>
+    <div class="summary" id="reportSummary"></div>
+    <div class="table-wrap" id="reportList"></div>
+  </section>
+
+  <section id="usersPanel">
   <div class="toolbar">
     <input id="search" type="search" placeholder="Search by name, username or email" aria-label="Search users">
     <button id="purge" class="danger">Delete expired unverified</button>
@@ -176,6 +275,7 @@ ADMIN_HTML = """<!DOCTYPE html>
     </table>
     <div class="empty" id="empty" hidden>No users found.</div>
   </div>
+  </section>
 </main>
 
 <div id="toast" role="status"></div>
@@ -256,9 +356,111 @@ ADMIN_HTML = """<!DOCTYPE html>
     load();
   };
 
-  document.getElementById("refresh").onclick = load;
+  // ---- reported posts
+  const REASONS = {
+    spam: "Spam or scam", nudity: "Nudity or sexual content", violence: "Violence or dangerous content",
+    harassment: "Harassment or bullying", false_info: "False information", other: "Something else"
+  };
+
+  async function loadReports() {
+    const res = await fetch("/admin/api/reports", { headers: HEADERS });
+    if (!res.ok) { toast("Could not load reports (" + res.status + ")"); return; }
+    renderReports(await res.json());
+  }
+
+  function renderReports(reports) {
+    const list = document.getElementById("reportList");
+    list.replaceChildren();
+
+    document.getElementById("reportCount").textContent = reports.length ? "(" + reports.length + ")" : "";
+    document.getElementById("reportSummary").textContent =
+      reports.length + (reports.length === 1 ? " reported post" : " reported posts");
+
+    if (!reports.length) {
+      const none = document.createElement("div");
+      none.className = "empty";
+      none.textContent = "No reported posts. Nothing needs your attention.";
+      list.append(none);
+      return;
+    }
+
+    for (const r of reports) {
+      const box = document.createElement("div");
+      box.className = "report";
+
+      const top = document.createElement("div");
+      top.className = "top";
+
+      const title = document.createElement("strong");
+      title.textContent = "Post #" + r.post_id + " by @" + r.author + "  (" + r.count + (r.count === 1 ? " report)" : " reports)");
+
+      const actions = document.createElement("div");
+      actions.className = "actions";
+
+      const dismiss = document.createElement("button");
+      dismiss.textContent = "Dismiss reports";
+      dismiss.onclick = async () => {
+        if (!confirm("Keep this post and clear its reports?")) return;
+        const res = await fetch("/admin/api/reports/" + r.post_id + "/dismiss", { method: "POST", headers: HEADERS });
+        toast(res.ok ? "Reports dismissed" : "Failed (" + res.status + ")");
+        loadReports();
+      };
+
+      const remove = document.createElement("button");
+      remove.className = "danger";
+      remove.textContent = "Remove post";
+      remove.onclick = async () => {
+        if (!confirm("Permanently remove this post, with its likes, comments and media?")) return;
+        const res = await fetch("/admin/api/posts/" + r.post_id, { method: "DELETE", headers: HEADERS });
+        toast(res.ok ? "Post removed" : "Failed (" + res.status + ")");
+        loadReports();
+      };
+
+      actions.append(dismiss, remove);
+      top.append(title, actions);
+
+      const text = document.createElement("div");
+      text.className = "text";
+      text.textContent = r.text || (r.has_video ? "(video post)" : r.has_image ? "(photo post)" : "(empty)");
+
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      meta.textContent = (r.has_image ? "Has a photo. " : "") + (r.has_video ? "Has a video. " : "") +
+        "First reported " + new Date(r.first_reported).toLocaleString();
+
+      const reasons = document.createElement("ul");
+      for (const x of r.reports) {
+        const li = document.createElement("li");
+        li.textContent = (REASONS[x.reason] || x.reason) + (x.details ? ": " + x.details : "") + "  (by @" + x.by + ")";
+        reasons.append(li);
+      }
+
+      box.append(top, text, meta, reasons);
+      list.append(box);
+    }
+  }
+
+  function showTab(name) {
+    const reports = name === "reports";
+    document.getElementById("usersPanel").hidden = reports;
+    document.getElementById("reportsPanel").hidden = !reports;
+    document.getElementById("tabUsers").classList.toggle("active", !reports);
+    document.getElementById("tabReports").classList.toggle("active", reports);
+    if (reports) loadReports();
+  }
+
+  document.getElementById("tabUsers").onclick = () => showTab("users");
+  document.getElementById("tabReports").onclick = () => showTab("reports");
+
+  document.getElementById("refresh").onclick = () => {
+    load();
+    if (!document.getElementById("reportsPanel").hidden) loadReports();
+  };
   search.addEventListener("input", render);
   load();
+  fetch("/admin/api/reports", { headers: HEADERS }).then(r => r.ok ? r.json() : []).then(list => {
+    document.getElementById("reportCount").textContent = list.length ? "(" + list.length + ")" : "";
+  });
 </script>
 </body>
 </html>

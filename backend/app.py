@@ -16,7 +16,7 @@ from flask_mail import Mail
 
 from database import db
 
-from models import User, Profile, delete_user_completely
+from models import User, Profile, delete_user_completely, ensure_columns
 
 from email_service import mail, send_verification_email
 from admin import admin_bp
@@ -44,8 +44,9 @@ app.config["MAIL_PASSWORD"] = os.getenv("MAIL_PASSWORD")
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///playhub.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-# Largest request accepted (an image up to 5 MB plus the form around it)
-app.config["MAX_CONTENT_LENGTH"] = 6 * 1024 * 1024
+# Largest request accepted. Photos are limited to 5 MB and videos to 50 MB by their
+# own checks; this is only the outer ceiling.
+app.config["MAX_CONTENT_LENGTH"] = 60 * 1024 * 1024
 
 # Signs login tokens. Set SECRET_KEY in .env so people stay logged in after a restart.
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY") or secrets.token_hex(32)
@@ -66,6 +67,7 @@ app.register_blueprint(games_bp)
 
 with app.app_context():
     db.create_all()
+    ensure_columns()          # upgrades older databases without losing anything
 
 
 def generate_username(full_name):
@@ -81,10 +83,25 @@ def generate_username(full_name):
     return username
 
 
+SMALL_REQUEST_LIMIT = 6 * 1024 * 1024
+
+
+@app.before_request
+def limit_request_size():
+    """Only publishing a post may be large (a video). Everything else is capped at
+    6 MB so nobody can tie up the server with a huge upload to the wrong route."""
+    size = request.content_length
+
+    if size and size > SMALL_REQUEST_LIMIT and request.endpoint != "feed.create_post":
+        return jsonify({
+            "message": "That file is too large. Photos can be up to 5 MB and videos up to 50 MB."
+        }), 413
+
+
 @app.errorhandler(413)
 def too_large(error):
     return jsonify({
-        "message": "That file is too large. Images can be up to 5 MB."
+        "message": "That file is too large. Photos can be up to 5 MB and videos up to 50 MB."
     }), 413
 
 

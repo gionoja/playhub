@@ -2,6 +2,7 @@
 
 Visibility rule used everywhere: you can see your own content and the content
 of your friends. The server enforces it; the browser is never trusted."""
+import re
 from datetime import datetime, timedelta
 
 from flask import Blueprint, abort, current_app, g, jsonify, request, send_from_directory
@@ -12,13 +13,15 @@ from sqlalchemy.exc import IntegrityError
 from auth import login_required
 from database import db
 from models import (
-    Friendship, Notification, Post, PostComment, PostLike, Story, StoryView, User
+    Friendship, HiddenPost, Notification, Post, PostComment, PostLike, PostReport,
+    SavedPost, Story, StoryView, User, delete_post_completely
 )
 from profiles import avatar_url, preload_avatars
 from signing import signed_url, verified_viewer
 from uploads import (
-    MAX_IMAGE_BYTES, MIME, POST_DIR, SAFE_NAME, STORY_DIR, ImageProblem,
-    delete_upload_files, detect_image_type, prepare_image, save_image
+    MAX_IMAGE_BYTES, MIME, POST_DIR, SAFE_NAME, STORY_DIR, VIDEO_NAME, ImageProblem,
+    VideoProblem, delete_upload_files, detect_image_type, prepare_image, save_image,
+    save_video_stream
 )
 
 feed_bp = Blueprint("feed", __name__)
@@ -67,6 +70,16 @@ def _image_url(kind, filename):
     # <img> tags cannot send a login header, so the link carries a signature
     # tied to this person. It stays the same all day so browsers can cache it.
     return signed_url(kind, filename, g.me_id)
+
+
+def _video_url(filename):
+    # served from /posts/videos/<file>: the same kind of signed, per-person link
+    return signed_url("posts", filename, g.me_id, segment="videos")
+
+
+def _hidden_posts():
+    """Posts this person chose to hide (as a subquery, so it stays cheap)."""
+    return db.session.query(HiddenPost.post_id).filter(HiddenPost.user_id == g.me_id)
 
 
 def _person(user):
@@ -139,6 +152,10 @@ def _serialize_posts(posts):
         row[0] for row in db.session.query(PostLike.post_id)
         .filter(PostLike.post_id.in_(ids), PostLike.user_id == g.me_id).all()
     }
+    saved = {
+        row[0] for row in db.session.query(SavedPost.post_id)
+        .filter(SavedPost.post_id.in_(ids), SavedPost.user_id == g.me_id).all()
+    }
     authors = {
         u.id: u for u in User.query.filter(
             User.id.in_({p.user_id for p in posts})
@@ -153,6 +170,9 @@ def _serialize_posts(posts):
             "mine": p.user_id == g.me_id,
             "content": p.content or "",
             "image_url": _image_url("posts", p.image_filename) if p.image_filename else None,
+            "video_url": _video_url(p.video_filename) if p.video_filename else None,
+            "edited": p.edited_at is not None,
+            "saved": p.id in saved,
             "created_at": _iso(p.created_at),
             "like_count": likes.get(p.id, 0),
             "liked": p.id in liked,
@@ -189,7 +209,10 @@ def _visible_post_or_404(post_id):
 def get_feed():
     author_ids = _friend_ids(g.me_id) | {g.me_id}
 
-    posts, has_more = _page(Post.query.filter(Post.user_id.in_(author_ids)), FEED_PAGE)
+    posts, has_more = _page(
+        Post.query.filter(Post.user_id.in_(author_ids), Post.id.notin_(_hidden_posts())),
+        FEED_PAGE
+    )
 
     return jsonify({"posts": _serialize_posts(posts), "has_more": has_more})
 
@@ -205,11 +228,19 @@ def user_posts(username):
     if not _can_see(user.id):
         return jsonify({"posts": [], "has_more": False, "restricted": True})
 
-    posts, has_more = _page(Post.query.filter_by(user_id=user.id), PROFILE_PAGE)
+    posts, has_more = _page(
+        Post.query.filter(Post.user_id == user.id, Post.id.notin_(_hidden_posts())),
+        PROFILE_PAGE
+    )
 
     return jsonify({
         "posts": _serialize_posts(posts), "has_more": has_more, "restricted": False
     })
+
+
+TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]{8,40}$")
+REPORT_REASONS = ("spam", "nudity", "violence", "harassment", "false_info", "other")
+MAX_REPORT_DETAILS = 200
 
 
 @feed_bp.route("/posts", methods=["POST"])
@@ -217,35 +248,112 @@ def user_posts(username):
 def create_post():
     if (request.content_type or "").startswith("multipart/form-data"):
         text = request.form.get("text") or ""
+        token = (request.form.get("client_token") or "").strip()
     else:
-        text = (request.get_json(silent=True) or {}).get("text") or ""
+        body = request.get_json(silent=True) or {}
+        text = body.get("text") or ""
+        token = str(body.get("client_token") or "").strip()
 
     text = text.strip()
 
     if len(text) > MAX_POST_TEXT:
         return _error(f"Posts can be up to {MAX_POST_TEXT} characters", 400)
 
+    token = token if TOKEN_PATTERN.match(token) else None
+
+    # The same submission arriving again returns the post that already exists
+    if token:
+        existing = Post.query.filter_by(user_id=g.me_id, client_token=token).first()
+
+        if existing:
+            return jsonify(_serialize_posts([existing])[0]), 200
+
+    has_video = bool(request.files.get("video"))
+
+    if has_video and request.files.get("image"):
+        return _error("Choose either a photo or a video, not both", 400)
+
+    # check the photo before anything is written to disk
     data, ext, problem = _read_upload()
 
     if problem:
         return problem
 
-    if not text and not data:
-        return _error("Write something or add a photo", 400)
+    video_name = None
 
-    filename = save_image(data, ext, POST_DIR) if data else None
+    if has_video:
+        try:
+            video_name = save_video_stream(request.files["video"], POST_DIR)
+        except VideoProblem as problem:
+            return _error(str(problem), problem.status)
 
-    post = Post(user_id=g.me_id, content=text or None, image_filename=filename)
+    if not text and not data and not video_name:
+        return _error("Write something or add a photo or video", 400)
+
+    image_name = save_image(data, ext, POST_DIR) if data else None
+
+    post = Post(
+        user_id=g.me_id, content=text or None, image_filename=image_name,
+        video_filename=video_name, client_token=token
+    )
     db.session.add(post)
 
     try:
         db.session.commit()
+    except IntegrityError:
+        # a twin request with the same token got there first
+        db.session.rollback()
+        delete_upload_files([image_name, video_name], POST_DIR)
+        twin = Post.query.filter_by(user_id=g.me_id, client_token=token).first()
+
+        if twin:
+            return jsonify(_serialize_posts([twin])[0]), 200
+
+        return _error("Your post could not be published. Please try again.", 500)
     except Exception:
         db.session.rollback()
-        delete_upload_files([filename], POST_DIR)
+        delete_upload_files([image_name, video_name], POST_DIR)
         return _error("Your post could not be published. Please try again.", 500)
 
     return jsonify(_serialize_posts([post])[0]), 201
+
+
+@feed_bp.route("/posts/<int:post_id>")
+@login_required
+def get_post(post_id):
+    post = _visible_post_or_404(post_id)
+
+    if not post:
+        return _error("This post isn't available", 404)
+
+    return jsonify(_serialize_posts([post])[0])
+
+
+@feed_bp.route("/posts/<int:post_id>", methods=["PUT"])
+@login_required
+def edit_post(post_id):
+    post = _visible_post_or_404(post_id)
+
+    if not post:
+        return _error("This post isn't available", 404)
+
+    if post.user_id != g.me_id:
+        return _error("You can only edit your own posts", 403)
+
+    text = ((request.get_json(silent=True) or {}).get("text") or "").strip()
+
+    if len(text) > MAX_POST_TEXT:
+        return _error(f"Posts can be up to {MAX_POST_TEXT} characters", 400)
+
+    if not text and not (post.image_filename or post.video_filename):
+        return _error("A post needs some text, a photo or a video", 400)
+
+    if text != (post.content or ""):
+        post.content = text or None
+        post.edited_at = datetime.utcnow()
+        db.session.commit()
+
+    return jsonify(_serialize_posts([post])[0])
 
 
 @feed_bp.route("/posts/<int:post_id>", methods=["DELETE"])
@@ -256,21 +364,161 @@ def delete_post(post_id):
     if not post or post.user_id != g.me_id:
         return _error("Post not found", 404)
 
-    PostLike.query.filter_by(post_id=post_id).delete(synchronize_session=False)
-    PostComment.query.filter_by(post_id=post_id).delete(synchronize_session=False)
-    Notification.query.filter_by(post_id=post_id).delete(synchronize_session=False)
-    filename = post.image_filename
-    db.session.delete(post)
+    delete_post_completely(post)       # likes, comments, saves, reports and the files
     db.session.commit()
-
-    delete_upload_files([filename], POST_DIR)
 
     return jsonify({"message": "Post deleted"})
 
 
+# ------------------------------------------------- save / hide / report
+
+@feed_bp.route("/posts/saved")
+@login_required
+def saved_posts():
+    me = g.me_id
+    visible = _friend_ids(me) | {me}
+
+    query = Post.query.join(SavedPost, SavedPost.post_id == Post.id).filter(
+        SavedPost.user_id == me, Post.user_id.in_(visible)
+    )
+
+    posts, has_more = _page(query, FEED_PAGE)
+
+    return jsonify({"posts": _serialize_posts(posts), "has_more": has_more})
+
+
+@feed_bp.route("/posts/<int:post_id>/save", methods=["POST"])
+@login_required
+def save_post(post_id):
+    if not _visible_post_or_404(post_id):
+        return _error("This post isn't available", 404)
+
+    db.session.add(SavedPost(user_id=g.me_id, post_id=post_id))
+
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()          # already saved
+
+    return jsonify({"saved": True})
+
+
+@feed_bp.route("/posts/<int:post_id>/save", methods=["DELETE"])
+@login_required
+def unsave_post(post_id):
+    SavedPost.query.filter_by(user_id=g.me_id, post_id=post_id).delete(
+        synchronize_session=False
+    )
+    db.session.commit()
+
+    return jsonify({"saved": False})
+
+
+@feed_bp.route("/posts/<int:post_id>/hide", methods=["POST"])
+@login_required
+def hide_post(post_id):
+    post = _visible_post_or_404(post_id)
+
+    if not post:
+        return _error("This post isn't available", 404)
+
+    if post.user_id == g.me_id:
+        return _error("This is your own post. You can delete it instead.", 400)
+
+    db.session.add(HiddenPost(user_id=g.me_id, post_id=post_id))
+
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()          # already hidden
+
+    return jsonify({"hidden": True})
+
+
+@feed_bp.route("/posts/<int:post_id>/hide", methods=["DELETE"])
+@login_required
+def unhide_post(post_id):
+    HiddenPost.query.filter_by(user_id=g.me_id, post_id=post_id).delete(
+        synchronize_session=False
+    )
+    db.session.commit()
+
+    return jsonify({"hidden": False})
+
+
+@feed_bp.route("/posts/<int:post_id>/report", methods=["POST"])
+@login_required
+def report_post(post_id):
+    post = _visible_post_or_404(post_id)
+
+    if not post:
+        return _error("This post isn't available", 404)
+
+    if post.user_id == g.me_id:
+        return _error("You can't report your own post", 400)
+
+    data = request.get_json(silent=True) or {}
+    reason = data.get("reason")
+    details = (data.get("details") or "").strip()
+
+    if reason not in REPORT_REASONS:
+        return _error("Please choose a reason for your report", 400)
+
+    if len(details) > MAX_REPORT_DETAILS:
+        return _error(f"Details can be up to {MAX_REPORT_DETAILS} characters", 400)
+
+    db.session.add(PostReport(
+        reporter_id=g.me_id, post_id=post_id, reason=reason, details=details or None
+    ))
+
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        return _error("You already reported this post. Our team will review it.", 409)
+
+    # whoever reports a post no longer has to see it
+    db.session.add(HiddenPost(user_id=g.me_id, post_id=post_id))
+
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+
+    return jsonify({"message": "Thanks for letting us know. We'll review this post."}), 201
+
+
+# ------------------------------------------------------------ media files
+
 @feed_bp.route("/posts/images/<filename>")
 def post_image(filename):
     return _serve_image("posts", filename, POST_DIR)
+
+
+@feed_bp.route("/posts/videos/<filename>")
+def post_video(filename):
+    """Streams a post video. Supports Range requests so players can seek."""
+    if not VIDEO_NAME.match(filename):
+        abort(404)
+
+    viewer = verified_viewer("posts", filename)
+
+    if viewer is None:
+        abort(404)
+
+    post = Post.query.filter_by(video_filename=filename).first()
+
+    if not post or not _can_see(post.user_id, viewer):
+        abort(404)
+
+    response = send_from_directory(
+        POST_DIR, filename,
+        mimetype=MIME[filename.rsplit(".", 1)[1]],
+        conditional=True,
+    )
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Cache-Control"] = "private, max-age=86400"
+    return response
 
 
 # ------------------------------------------------------------------ likes

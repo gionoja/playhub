@@ -18,11 +18,17 @@ STORY_DIR = os.path.join(UPLOAD_ROOT, "stories")
 AVATAR_DIR = os.path.join(UPLOAD_ROOT, "avatars")
 
 MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 5 MB
+MAX_VIDEO_BYTES = 50 * 1024 * 1024  # 50 MB
 
 # Saved names are always random hex + one of these extensions
 SAFE_NAME = re.compile(r"^[0-9a-f]{32}\.(jpg|png|gif|webp)$")
 
-MIME = {"jpg": "image/jpeg", "png": "image/png", "gif": "image/gif", "webp": "image/webp"}
+VIDEO_NAME = re.compile(r"^[0-9a-f]{32}\.(mp4|webm|mov)$")
+
+MIME = {
+    "jpg": "image/jpeg", "png": "image/png", "gif": "image/gif", "webp": "image/webp",
+    "mp4": "video/mp4", "webm": "video/webm", "mov": "video/quicktime",
+}
 
 for _folder in (MESSAGE_DIR, POST_DIR, STORY_DIR, AVATAR_DIR):
     os.makedirs(_folder, exist_ok=True)
@@ -113,13 +119,85 @@ def save_image(data, ext, folder):
     return name
 
 
+class VideoProblem(Exception):
+    """A video that is not allowed. `status` is the HTTP code to answer with."""
+
+    def __init__(self, message, status=400):
+        super().__init__(message)
+        self.status = status
+
+
+# "ftyp" brands that really are video. Photo formats (HEIC, AVIF) use the same
+# container with other brand names, so they are not accepted here.
+MP4_BRANDS = {
+    b"isom", b"iso2", b"iso4", b"iso5", b"iso6", b"mp41", b"mp42", b"avc1",
+    b"dash", b"M4V ", b"MSNV", b"3gp4", b"3gp5", b"3gp6", b"f4v ",
+}
+
+
+def detect_video_type(head):
+    """Identify MP4, MOV or WebM from the first bytes (never from the file name)."""
+    if len(head) >= 12 and head[4:8] == b"ftyp":
+        brand = head[8:12]
+
+        if brand == b"qt  ":
+            return "mov"
+
+        return "mp4" if brand in MP4_BRANDS else None
+
+    if head[:4] == b"\x1a\x45\xdf\xa3" and b"webm" in head[:64]:
+        return "webm"
+
+    return None
+
+
+def save_video_stream(upload, folder, max_bytes=MAX_VIDEO_BYTES):
+    """Write an uploaded video to disk piece by piece, so a big file never has to
+    sit in memory. Returns the new file name."""
+    head = upload.stream.read(64)
+    ext = detect_video_type(head)
+
+    if not ext:
+        raise VideoProblem("Only MP4, WebM or MOV videos are allowed", 400)
+
+    name = secrets.token_hex(16) + "." + ext
+    path = os.path.join(folder, name)
+    total = len(head)
+
+    try:
+        with open(path, "wb") as f:
+            f.write(head)
+
+            while True:
+                chunk = upload.stream.read(1024 * 1024)
+
+                if not chunk:
+                    break
+
+                total += len(chunk)
+
+                if total > max_bytes:
+                    raise VideoProblem(
+                        "That video is too large. The limit is %d MB." % (max_bytes // 1024 // 1024), 413)
+
+                f.write(chunk)
+    except Exception:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        raise
+
+    return name
+
+
 def save_message_image(data, ext):
     return save_image(data, ext, MESSAGE_DIR)
 
 
 def delete_upload_files(names, folder=MESSAGE_DIR):
     for name in names:
-        if name and SAFE_NAME.match(name):
+        if name and (SAFE_NAME.match(name) or VIDEO_NAME.match(name)):
             try:
                 os.remove(os.path.join(folder, name))
             except OSError:
