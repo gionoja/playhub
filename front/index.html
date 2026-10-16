@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PlayHub</title>
-    <link rel="stylesheet" href="style.css?v=7">
+    <link rel="stylesheet" href="style.css?v=8">
 </head>
 
 <body>
@@ -215,7 +215,9 @@
                 What's on your mind?
             </button>
 
-            <button class="photo-post-btn" onclick="openPostModal(true)"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg></button>
+            <button class="photo-post-btn" onclick="openPostModal('video')" aria-label="Add a video"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg></button>
+
+            <button class="photo-post-btn" onclick="openPostModal(true)" aria-label="Add a photo"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg></button>
         </section>
 
 
@@ -501,6 +503,15 @@
                     </div>
                     <span><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></span>
                 </button>
+                <button onclick="openSavedPosts()">
+                    <span><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg></span>
+                    <div>
+                        <strong>Saved posts</strong>
+                        <small>Posts you saved to read later</small>
+                    </div>
+                    <span><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></span>
+                </button>
+
 
             </div>
 
@@ -665,42 +676,75 @@
     <div class="modal-content">
 
         <div class="modal-header">
+
             <h2>Create post</h2>
 
-            <button onclick="closeModal('postModal')" aria-label="Close"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
-        </div>
+            <button onclick="closePostModal()" aria-label="Close"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
 
+        </div>
 
         <textarea
             id="postText"
-            placeholder="What's on your mind?">
-        </textarea>
+            maxlength="2400"
+            oninput="postInput()"
+            placeholder="What's on your mind?"></textarea>
 
+        <div class="char-count" id="postCount">0/2000</div>
 
         <div id="imagePreview" class="image-preview hidden">
-            <img id="previewImage" src="" alt="Preview">
+            <img id="previewImage" src="" alt="Photo preview">
 
             <button onclick="removeSelectedImage()">
                 Remove photo
             </button>
         </div>
 
+        <div id="videoPreview" class="image-preview video-preview hidden">
+            <video id="previewVideo" controls playsinline preload="metadata"></video>
+
+            <div class="video-info" id="videoInfo"></div>
+
+            <button onclick="removeSelectedVideo()">
+                Remove video
+            </button>
+        </div>
+
+        <div id="postProgress" class="post-progress hidden" role="progressbar"
+            aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <div class="bar"><i id="postProgressBar"></i></div>
+            <div class="row">
+                <span id="postProgressText">Uploading 0%</span>
+            </div>
+        </div>
 
         <div class="post-tools">
 
             <label class="upload-btn">
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:middle"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg> Add photo
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg> Add photo
                 <input
                     type="file"
                     id="postImage"
-                    accept="image/*"
+                    accept="image/jpeg,image/png,image/gif,image/webp"
                     onchange="previewPostImage(event)">
+            </label>
+
+            <label class="upload-btn">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg> Add video
+                <input
+                    type="file"
+                    id="postVideo"
+                    accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov"
+                    onchange="previewPostVideo(event)">
             </label>
 
         </div>
 
+        <p class="tool-hint">Photos up to 5 MB. Videos up to 50 MB (MP4, WebM or MOV). One photo or one video per post.</p>
+
+        <p id="postMsg" class="form-msg hidden" role="alert"></p>
 
         <button
+            id="postSubmit"
             class="primary-btn"
             onclick="createPost()">
 
@@ -708,7 +752,7 @@
 
         </button>
 
-        <button class="secondary-btn cancel-post-btn" onclick="cancelPost()">
+        <button id="postCancel" class="secondary-btn cancel-post-btn" onclick="cancelPost()">
             Cancel
         </button>
 
@@ -1412,12 +1456,166 @@
 </button>
 
 
-<script src="app.js?v=7"></script>
-<script src="social.js?v=7"></script>
-<script src="messages.js?v=7"></script>
-<script src="feed.js?v=7"></script>
-<script src="profile.js?v=7"></script>
-<script src="pool.js?v=7"></script>
+<div id="postMenuLayer" class="post-menu-layer hidden">
+    <div id="postMenu" class="post-menu" role="menu" aria-label="Post options"></div>
+</div>
+
+
+<div id="confirmModal" class="modal hidden">
+
+    <div class="modal-content pool-sheet" role="alertdialog" aria-labelledby="confirmTitle" aria-describedby="confirmText">
+
+        <h2 id="confirmTitle">Are you sure?</h2>
+
+        <p id="confirmText" class="auth-help"></p>
+
+        <p id="confirmMsg" class="form-msg hidden" role="alert"></p>
+
+        <div class="pool-two">
+            <button id="confirmOk" class="pbtn danger" type="button">Confirm</button>
+            <button id="confirmCancel" class="pbtn ghost" type="button" onclick="closeModal('confirmModal')">Cancel</button>
+        </div>
+
+    </div>
+
+</div>
+
+
+<div id="editPostModal" class="modal hidden">
+
+    <div class="modal-content">
+
+        <div class="modal-header">
+
+            <h2>Edit post</h2>
+
+            <button onclick="closeEditPost()" aria-label="Close"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+
+        </div>
+
+        <textarea id="editPostText" maxlength="2400" oninput="updateEditCount()"
+            placeholder="Write something"></textarea>
+
+        <div class="char-count" id="editPostCount">0/2000</div>
+
+        <p class="auth-help">You can change the text. The photo or video stays as it is.</p>
+
+        <p id="editPostMsg" class="form-msg hidden" role="alert"></p>
+
+        <button id="editPostSave" class="primary-btn" onclick="saveEditedPost()">Save changes</button>
+
+        <button class="secondary-btn cancel-post-btn" onclick="closeEditPost()">Cancel</button>
+
+    </div>
+
+</div>
+
+
+<div id="reportModal" class="modal hidden">
+
+    <div class="modal-content">
+
+        <div class="modal-header">
+
+            <h2>Report post</h2>
+
+            <button onclick="closeModal('reportModal')" aria-label="Close"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+
+        </div>
+
+        <p class="auth-help">Why are you reporting this post? We'll review it, and you won't see it again.</p>
+
+        <div class="report-options" role="radiogroup" aria-label="Reason">
+            <label><input type="radio" name="reportReason" value="spam"> Spam or scam</label>
+            <label><input type="radio" name="reportReason" value="nudity"> Nudity or sexual content</label>
+            <label><input type="radio" name="reportReason" value="violence"> Violence or dangerous content</label>
+            <label><input type="radio" name="reportReason" value="harassment"> Harassment or bullying</label>
+            <label><input type="radio" name="reportReason" value="false_info"> False information</label>
+            <label><input type="radio" name="reportReason" value="other"> Something else</label>
+        </div>
+
+        <textarea id="reportDetails" maxlength="200" rows="3"
+            placeholder="Add details (optional)"></textarea>
+
+        <p id="reportMsg" class="form-msg hidden" role="alert"></p>
+
+        <button id="reportSubmit" class="primary-btn" onclick="submitReport()">Send report</button>
+
+        <button class="secondary-btn cancel-post-btn" onclick="closeModal('reportModal')">Cancel</button>
+
+    </div>
+
+</div>
+
+
+<div id="savedPostsModal" class="modal hidden">
+
+    <div class="modal-content profile-sheet">
+
+        <div class="modal-header">
+
+            <h2>Saved posts</h2>
+
+            <button onclick="closeModal('savedPostsModal')" aria-label="Close"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+
+        </div>
+
+        <div id="savedPostsList"></div>
+
+    </div>
+
+</div>
+
+
+<div id="postViewModal" class="modal hidden">
+
+    <div class="modal-content profile-sheet">
+
+        <div class="modal-header">
+
+            <h2>Post</h2>
+
+            <button onclick="closeModal('postViewModal')" aria-label="Close"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+
+        </div>
+
+        <div id="postViewBody"></div>
+
+    </div>
+
+</div>
+
+
+<div id="imageViewer" class="image-viewer hidden" role="dialog" aria-modal="true" aria-label="Photo viewer">
+
+    <button id="ivClose" class="iv-btn iv-close" type="button" onclick="closeImageViewer()" aria-label="Close photo"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+
+    <button id="ivPrev" class="iv-btn iv-nav prev" type="button" onclick="viewerStep(-1)" aria-label="Previous photo"><svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
+
+    <div id="ivStage" class="iv-stage">
+        <img id="ivImage" alt="Photo">
+        <div class="iv-spinner" aria-hidden="true"></div>
+    </div>
+
+    <button id="ivNext" class="iv-btn iv-nav next" type="button" onclick="viewerStep(1)" aria-label="Next photo"><svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
+
+    <div class="iv-bar">
+        <div id="ivCaption" class="iv-caption"></div>
+        <div class="iv-actions">
+            <span id="ivCount" class="iv-count"></span>
+            <button id="ivZoom" class="iv-btn" type="button" onclick="viewerToggleZoom()" aria-label="Zoom in"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/><line x1="11" x2="11" y1="8" y2="14"/><line x1="8" x2="14" y1="11" y2="11"/></svg></button>
+        </div>
+    </div>
+
+</div>
+
+
+<script src="app.js?v=8"></script>
+<script src="social.js?v=8"></script>
+<script src="messages.js?v=8"></script>
+<script src="feed.js?v=8"></script>
+<script src="profile.js?v=8"></script>
+<script src="pool.js?v=8"></script>
 
 </body>
 </html>

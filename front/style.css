@@ -3122,3 +3122,450 @@ button {
         display: none;
     }
 }
+
+
+/* ================= POST MENU, VIDEO, VIEWER, COMPOSER ================= */
+
+body.no-scroll {
+    overflow: hidden;
+}
+
+.post-menu-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--muted);
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.post-menu-btn:hover,
+.post-menu-btn[aria-expanded="true"] {
+    background: var(--bg);
+    color: var(--text);
+}
+
+.post-menu-btn:focus-visible,
+.menu-item:focus-visible,
+.iv-btn:focus-visible,
+.post-image-link:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+.post-menu-layer {
+    position: fixed;
+    inset: 0;
+    z-index: 150;
+}
+
+.post-menu {
+    position: fixed;
+    width: 232px;
+    padding: 6px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.35);
+    animation: modal-in 0.14s ease;
+}
+
+.menu-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 11px 12px;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--text);
+    font-weight: 600;
+    text-align: left;
+}
+
+.menu-item:hover {
+    background: var(--bg);
+}
+
+.menu-item.danger {
+    color: var(--danger);
+}
+
+.menu-sep {
+    height: 1px;
+    margin: 5px 6px;
+    background: var(--border);
+}
+
+/* on phones the menu slides up from the bottom */
+.post-menu-layer.sheet {
+    display: flex;
+    align-items: flex-end;
+    background: rgba(0, 0, 0, 0.5);
+}
+
+.post-menu-layer.sheet .post-menu {
+    position: static;
+    width: 100%;
+    padding: 10px 10px calc(12px + env(safe-area-inset-bottom, 0px));
+    border-radius: 22px 22px 0 0;
+    border-bottom: 0;
+    animation: sheet-in 0.2s ease;
+}
+
+.post-menu-layer.sheet .menu-item {
+    padding: 14px 12px;
+    font-size: 16px;
+}
+
+@keyframes sheet-in {
+    from { transform: translateY(40px); opacity: 0; }
+    to { transform: none; opacity: 1; }
+}
+
+.post-hidden {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 16px;
+    margin-bottom: 15px;
+    background: var(--card);
+    border: 1px dashed var(--border);
+    border-radius: 18px;
+    color: var(--muted);
+}
+
+.post-hidden .pbtn {
+    padding: 7px 14px;
+}
+
+.post-image-link {
+    display: block;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: zoom-in;
+}
+
+.post-video-wrap {
+    background: #000;
+}
+
+.post-video {
+    display: block;
+    width: 100%;
+    max-height: 520px;
+    background: #000;
+}
+
+/* ---- composer ---- */
+
+#postText,
+#editPostText {
+    min-height: 110px;
+}
+
+.post-tools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.upload-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-weight: 700;
+    font-size: 14px;
+    transition: border-color 0.15s ease;
+}
+
+.upload-btn:hover {
+    border-color: var(--primary);
+}
+
+.tool-hint {
+    margin-bottom: 14px;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.video-preview video {
+    display: block;
+    width: 100%;
+    max-height: 300px;
+    margin-bottom: 8px;
+    border-radius: 12px;
+    background: #000;
+}
+
+.video-info {
+    margin-bottom: 8px;
+    color: var(--muted);
+    font-size: 13px;
+    word-break: break-all;
+}
+
+.post-progress {
+    margin-bottom: 14px;
+    padding: 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+}
+
+.post-progress .bar {
+    height: 8px;
+    border-radius: 999px;
+    background: var(--border);
+    overflow: hidden;
+}
+
+.post-progress .bar i {
+    display: block;
+    width: 0;
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--primary), #ff3b5c);
+    transition: width 0.15s linear;
+}
+
+.post-progress .row {
+    margin-top: 8px;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+#postModal.busy .post-tools,
+#postModal.busy .image-preview button {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+.report-options {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 14px;
+}
+
+.report-options label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 11px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    cursor: pointer;
+}
+
+.report-options label:hover {
+    border-color: var(--primary);
+}
+
+.report-options input {
+    width: auto;
+    margin: 0;
+    accent-color: var(--primary);
+}
+
+/* ---- fullscreen photo viewer ---- */
+
+.image-viewer {
+    position: fixed;
+    inset: 0;
+    z-index: 190;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(5, 6, 10, 0.95);
+    animation: fade-in 0.15s ease;
+}
+
+.iv-stage {
+    position: relative;
+    flex: 1;
+    align-self: stretch;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 64px 12px 84px;
+    overflow: hidden;
+}
+
+.iv-stage #ivImage {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: 6px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+    cursor: zoom-in;
+    -webkit-user-drag: none;
+    user-select: none;
+}
+
+.iv-stage.zoomed {
+    overflow: auto;
+    align-items: flex-start;
+    justify-content: flex-start;
+}
+
+.iv-stage.zoomed #ivImage {
+    max-width: none;
+    max-height: none;
+    width: 160%;
+    cursor: zoom-out;
+}
+
+.iv-stage.loading #ivImage {
+    opacity: 0.25;
+}
+
+.iv-spinner {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 34px;
+    height: 34px;
+    margin: -17px 0 0 -17px;
+    border-radius: 50%;
+    border: 3px solid rgba(255, 255, 255, 0.25);
+    border-top-color: #fff;
+    animation: spin 0.8s linear infinite;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.iv-stage.loading .iv-spinner {
+    opacity: 1;
+}
+
+.iv-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+    transition: background 0.15s ease;
+}
+
+.iv-btn:hover {
+    background: rgba(255, 255, 255, 0.24);
+}
+
+.iv-close {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    z-index: 3;
+}
+
+.iv-nav {
+    position: absolute;
+    top: 50%;
+    z-index: 3;
+    width: 48px;
+    height: 48px;
+    transform: translateY(-50%);
+}
+
+.iv-nav.prev {
+    left: 14px;
+}
+
+.iv-nav.next {
+    right: 14px;
+}
+
+.iv-bar {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 3;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 28px 18px calc(16px + env(safe-area-inset-bottom, 0px));
+    background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
+    color: #fff;
+    pointer-events: none;
+}
+
+.iv-bar .iv-btn,
+.iv-bar button {
+    pointer-events: auto;
+}
+
+.iv-caption {
+    flex: 1;
+    min-width: 0;
+    max-height: 4.2em;
+    overflow: hidden;
+    line-height: 1.4;
+    font-size: 14px;
+    opacity: 0.92;
+}
+
+.iv-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+}
+
+.iv-count {
+    font-size: 13px;
+    opacity: 0.85;
+}
+
+.msg-image-link {
+    display: block;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: zoom-in;
+}
+
+@media (max-width: 650px) {
+    .iv-nav {
+        width: 42px;
+        height: 42px;
+    }
+
+    .iv-nav.prev { left: 6px; }
+    .iv-nav.next { right: 6px; }
+
+    .iv-stage {
+        padding: 60px 4px 80px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .image-viewer,
+    .post-menu,
+    .post-menu-layer.sheet .post-menu {
+        animation: none;
+    }
+
+    .iv-spinner {
+        animation-duration: 2.4s;
+    }
+
+    .post-progress .bar i {
+        transition: none;
+    }
+}

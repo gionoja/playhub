@@ -26,6 +26,17 @@ let storyFile = null;
 let storyPreviewUrl = null;
 
 const FEED_ICONS = {
+    dots: '<circle cx="12" cy="5" r="1.7" fill="currentColor"/><circle cx="12" cy="12" r="1.7" fill="currentColor"/><circle cx="12" cy="19" r="1.7" fill="currentColor"/>',
+    pencil: '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>',
+    bookmark: '<path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/>',
+    link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+    eyeOff: '<path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/>',
+    flag: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" x2="4" y1="22" y2="15"/>',
+    video: '<path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/>',
+    left: '<path d="m15 18-6-6 6-6"/>',
+    right: '<path d="m9 18 6-6-6-6"/>',
+    zoomIn: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/><line x1="11" x2="11" y1="8" y2="14"/><line x1="8" x2="14" y1="11" y2="11"/>',
+    zoomOut: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/><line x1="8" x2="14" y1="11" y2="11"/>',
     heart: '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>',
     comment: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
     trash: '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
@@ -90,6 +101,7 @@ function onFeedOpened() {
 
     loadHome(true);
     refreshActivity();
+    openLinkedPost();
 }
 
 function onFeedClosed() {
@@ -104,7 +116,14 @@ function onFeedClosed() {
     feedState.hasMore = false;
 
     closeStoryViewer(true);
-    removeSelectedImage();
+    discardComposer();
+    closePostMenu();
+    closeImageViewer(true);
+    closeModal("editPostModal");
+    closeModal("reportModal");
+    closeModal("confirmModal");
+    closeModal("savedPostsModal");
+    closeModal("postViewModal");
     removeStoryImage();
 
     ["feedContainer", "commentsContainer"].forEach(id => {
@@ -142,7 +161,8 @@ let feedRequest = null;
 
 function feedSignature() {
     return JSON.stringify(posts.map(p => [
-        p.id, p.like_count, p.comment_count, p.liked, p.author.avatar_url, p.author.full_name
+        p.id, p.like_count, p.comment_count, p.liked, p.saved, p.content, p.edited,
+        p.author.avatar_url, p.author.full_name
     ]));
 }
 
@@ -325,12 +345,17 @@ function heartSvg() {
     return t.content.firstChild;
 }
 
+function postMetaText(p) {
+    return "@" + p.author.username + "  \u00b7  " + timeAgo(p.created_at) +
+        (p.edited ? "  \u00b7  Edited" : "");
+}
+
 function postCard(p) {
 
     const card = el("article", "post-card");
     card.dataset.postId = p.id;
 
-    // ---- header
+    // ---- header: picture, name, and the three-dot menu
     const head = el("div", "post-head");
 
     const avatar = avatarNode(p.author);
@@ -341,35 +366,49 @@ function postCard(p) {
     const name = el("button", "post-name", p.author.full_name);
     name.type = "button";
     name.addEventListener("click", () => openUserProfile(p.author.username));
-    who.append(name, el("small", null, "@" + p.author.username + "  \u00b7  " + timeAgo(p.created_at)));
+    who.append(name, el("small", null, postMetaText(p)));
 
-    head.append(avatar, who);
+    const menu = el("button", "post-menu-btn");
+    menu.type = "button";
+    menu.setAttribute("aria-label", "Post options");
+    menu.setAttribute("aria-haspopup", "menu");
+    menu.setAttribute("aria-expanded", "false");
+    menu.append(feedIcon("dots", 20));
+    menu.addEventListener("click", event => {
+        event.stopPropagation();
+        openPostMenu(p.id, menu);
+    });
 
-    if (p.mine) head.append(deleteControl(p));
-
+    head.append(avatar, who, menu);
     card.append(head);
 
     // ---- body
     if (p.content) card.append(el("p", "post-text", p.content));
 
     if (p.image_url) {
-        const link = el("a", "post-image-link");
-        link.href = API_URL + p.image_url;
-        link.target = "_blank";
-        link.rel = "noopener noreferrer";
+        const open = el("button", "post-image-link");
+        open.type = "button";
+        open.setAttribute("aria-label", "Open photo");
 
-                const img = el("img", "post-image");
-        img.alt = "Post image";
+        const img = el("img", "post-image");
+        img.alt = "Post photo";
         img.loading = "lazy";
         img.decoding = "async";
         img.addEventListener("load", () => img.classList.add("loaded"));
         img.addEventListener("error", () => {
-            link.replaceWith(el("div", "post-image-missing", "This image is unavailable"));
+            open.replaceWith(el("div", "post-image-missing", "This image is unavailable"));
         });
         img.src = API_URL + p.image_url;
-        link.append(img);
-        card.append(link);
+
+        card.dataset.imageUrl = API_URL + p.image_url;
+
+        // opens inside PlayHub: nothing navigates away, so the feed stays where it is
+        open.addEventListener("click", () => openPostPhoto(card));
+        open.append(img);
+        card.append(open);
     }
+
+    if (p.video_url) card.append(videoBlock(p));
 
     // ---- actions
     const actions = el("div", "post-actions");
@@ -394,50 +433,56 @@ function postCard(p) {
     return card;
 }
 
-function deleteControl(p) {
+function videoBlock(p) {
 
-    const wrap = el("div", "post-delete");
+    const wrap = el("div", "post-video-wrap");
 
-    const trash = el("button", "chat-icon-btn");
-    trash.type = "button";
-    trash.setAttribute("aria-label", "Delete post");
-    trash.append(feedIcon("trash", 18));
+    const video = el("video", "post-video");
+    video.controls = true;
+    video.preload = "metadata";
+    video.playsInline = true;
+    video.setAttribute("playsinline", "");
+    video.setAttribute("aria-label", "Post video");
 
-    trash.addEventListener("click", () => {
+    video.addEventListener("loadedmetadata", () => wrap.classList.add("ready"));
 
-        wrap.replaceChildren(
-            el("small", null, "Delete?"),
-            actionButton("Yes", "danger", () => deletePost(p.id)),
-            actionButton("No", "ghost", () => wrap.replaceWith(deleteControl(p)))
-        );
+    video.addEventListener("error", () => {
+        wrap.replaceChildren(el("div", "post-image-missing", "This video is unavailable"));
     });
 
-    wrap.append(trash);
+    // one video at a time
+    video.addEventListener("play", () => {
+        document.querySelectorAll("video.post-video").forEach(other => {
+            if (other !== video) other.pause();
+        });
+    });
+
+    // "#t=0.1" makes phones show the first picture instead of a black box
+    video.src = API_URL + p.video_url + "#t=0.1";
+
+    wrap.append(video);
 
     return wrap;
 }
 
+
+// Called from the confirmation dialog. Throws on failure so the dialog can show why.
 async function deletePost(id) {
 
-    try {
-        await api("/posts/" + id, { method: "DELETE" });
+    await api("/posts/" + id, { method: "DELETE" });
 
-        posts = posts.filter(p => p.id !== id);
-        postStore.delete(id);
+    posts = posts.filter(p => p.id !== id);
+    postStore.delete(id);
 
-                document.querySelectorAll('.post-card[data-post-id="' + id + '"]')
-            .forEach(n => n.remove());
+    document.querySelectorAll('.post-card[data-post-id="' + id + '"], .post-hidden[data-post-id="' + id + '"]')
+        .forEach(n => n.remove());
 
-        if (posts.length === 0) renderPosts();
+    if (posts.length === 0) renderPosts();
 
-        if (currentUser.posts_count) currentUser.posts_count--;
-        updateProfile();
+    if (currentUser.posts_count) currentUser.posts_count--;
+    updateProfile();
 
-        showToast("Post deleted");
-
-    } catch (error) {
-        showToast(friendlyError(error));
-    }
+    showToast("Post deleted");
 }
 
 // Updates the like/comment buttons of every card showing this post
@@ -509,122 +554,10 @@ async function likePost(id) {
 
 /* ============================ CREATE POST ========================== */
 
-function openPostModal(withPhoto = false) {
-
-    document.getElementById("postModal").classList.remove("hidden");
-
-    if (withPhoto) {
-        document.getElementById("postImage").click();
-    }
-}
-
-function previewPostImage(event) {
-
-    const file = event.target.files[0];
-
-    if (!file) return;
-
-    if (!checkImageFile(file)) {
-        event.target.value = "";
-        return;
-    }
-
-    removeSelectedImage();
-
-    selectedImage = file;
-    feedPreviewUrl = URL.createObjectURL(file);
-
-    document.getElementById("previewImage").src = feedPreviewUrl;
-    document.getElementById("imagePreview").classList.remove("hidden");
-}
-
-function removeSelectedImage() {
-
-    selectedImage = null;
-
-    if (feedPreviewUrl) {
-        URL.revokeObjectURL(feedPreviewUrl);
-        feedPreviewUrl = null;
-    }
-
-    const input = document.getElementById("postImage");
-    if (input) input.value = "";
-
-    const preview = document.getElementById("imagePreview");
-    if (preview) preview.classList.add("hidden");
-
-    const img = document.getElementById("previewImage");
-    if (img) img.removeAttribute("src");
-}
-
-function cancelPost() {
-
-    document.getElementById("postText").value = "";
-    removeSelectedImage();
-    closeModal("postModal");
-}
-
-async function createPost() {
-
-    if (feedState.posting) return;
-
-    const text = document.getElementById("postText").value.trim();
-
-    if (!text && !selectedImage) {
-        showToast("Write something or add a photo");
-        return;
-    }
-
-    const button = document.querySelector("#postModal .primary-btn");
-    const label = button.innerHTML;
-
-    feedState.posting = true;
-    button.disabled = true;
-    button.textContent = "Posting...";
-
-    try {
-
-        let options;
-
-        if (selectedImage) {
-            const form = new FormData();
-            form.append("image", selectedImage);
-            if (text) form.append("text", text);
-            options = { method: "POST", formData: form };
-        } else {
-            options = { method: "POST", body: { text: text } };
-        }
-
-        const post = await api("/posts", options);
-
-                posts.unshift(storePost(post));
-
-        currentUser.posts_count = (currentUser.posts_count || 0) + 1;
-        updateProfile();
 
 
-        document.getElementById("postText").value = "";
-        removeSelectedImage();
-        closeModal("postModal");
 
-                if (posts.length === 1) {
-            renderPosts();
-        } else {
-            const card = postCard(posts[0]);
-            card.classList.add("enter");
-            document.getElementById("feedContainer").prepend(card);
-        }
 
-        showToast("Post published");
-
-    } catch (error) {
-        showToast(friendlyError(error));       // the draft stays so nothing is lost
-    }
-
-    feedState.posting = false;
-    button.disabled = false;
-    button.innerHTML = label;
-}
 
 
 /* =============================== COMMENTS ========================== */
@@ -1346,6 +1279,1141 @@ document.addEventListener("DOMContentLoaded", () => {
                 event.preventDefault();
                 addComment();
             }
+        });
+    }
+});
+
+
+
+/* =====================================================================
+   POST COMPOSER: photo or video, previews, progress, no double posting
+   ===================================================================== */
+
+const byId = id => document.getElementById(id);
+
+const POST_MAX_CHARS = 2000;
+const VIDEO_MAX_MB = 50;
+const VIDEO_TYPES = ["video/mp4", "video/webm", "video/quicktime"];
+const VIDEO_EXTENSION = /\.(mp4|webm|mov)$/i;
+
+const composer = { media: null, token: null, upload: null, uploading: false };
+
+function newPostToken() {
+
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID().replace(/-/g, "");
+
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 14);
+}
+
+function sizeText(bytes) {
+    return (bytes / 1048576).toFixed(bytes < 10485760 ? 1 : 0) + " MB";
+}
+
+function imageProblem(file) {
+
+    if (!FEED_IMAGE_TYPES.includes(file.type)) {
+        return "Only JPG, PNG, GIF or WebP photos are allowed";
+    }
+
+    if (file.size > FEED_MAX_MB * 1048576) {
+        return "That photo is too large (" + sizeText(file.size) + "). The limit is " + FEED_MAX_MB + " MB.";
+    }
+
+    return null;
+}
+
+function videoProblem(file) {
+
+    if (!VIDEO_TYPES.includes(file.type) && !VIDEO_EXTENSION.test(file.name || "")) {
+        return "Only MP4, WebM or MOV videos are allowed";
+    }
+
+    if (file.size > VIDEO_MAX_MB * 1048576) {
+        return "That video is too large (" + sizeText(file.size) + "). The limit is " + VIDEO_MAX_MB + " MB.";
+    }
+
+    if (file.size === 0) return "That video file is empty";
+
+    return null;
+}
+
+function openPostModal(mode) {
+
+    composer.token = composer.token || newPostToken();
+
+    byId("postModal").classList.remove("hidden");
+
+    setMsg("postMsg", "");
+    updateComposer();
+
+    if (mode === true) byId("postImage").click();
+    else if (mode === "video") byId("postVideo").click();
+    else byId("postText").focus();
+}
+
+function closePostModal() {
+
+    if (composer.uploading) {
+        showToast("Your post is still uploading. Use Cancel upload to stop it.");
+        return;
+    }
+
+    closeModal("postModal");
+}
+
+function postInput() {
+    updateComposer();
+}
+
+function updateComposer() {
+
+    const box = byId("postText");
+
+    if (!box) return;
+
+    const length = box.value.length;
+    const counter = byId("postCount");
+
+    counter.textContent = length + "/" + POST_MAX_CHARS;
+    counter.classList.toggle("over", length > POST_MAX_CHARS);
+
+    const hasContent = box.value.trim().length > 0 || !!composer.media;
+
+    byId("postSubmit").disabled = feedState.posting || !hasContent || length > POST_MAX_CHARS;
+}
+
+function setComposerMedia(kind, file) {
+
+    clearComposerMedia(true);
+
+    const url = URL.createObjectURL(file);
+
+    composer.media = { kind: kind, file: file, url: url };
+
+    if (kind === "image") {
+        selectedImage = file;
+        byId("previewImage").src = url;
+        byId("imagePreview").classList.remove("hidden");
+    } else {
+        byId("previewVideo").src = url;
+        byId("videoInfo").textContent = file.name + "  \u00b7  " + sizeText(file.size);
+        byId("videoPreview").classList.remove("hidden");
+    }
+
+    updateComposer();
+}
+
+function clearComposerMedia(silent) {
+
+    if (composer.media) URL.revokeObjectURL(composer.media.url);
+
+    composer.media = null;
+    selectedImage = null;
+
+    ["imagePreview", "videoPreview"].forEach(id => byId(id).classList.add("hidden"));
+
+    const photo = byId("previewImage");
+    photo.removeAttribute("src");
+
+    const video = byId("previewVideo");
+    video.pause();
+    video.removeAttribute("src");
+    video.load && video.load();
+
+    byId("postImage").value = "";
+    byId("postVideo").value = "";
+
+    if (!silent) updateComposer();
+}
+
+function previewPostImage(event) {
+
+    const file = event.target.files[0];
+
+    if (!file) return;
+
+    const problem = imageProblem(file);
+
+    if (problem) {
+        event.target.value = "";
+        setMsg("postMsg", problem, "error");
+        showToast(problem);
+        return;
+    }
+
+    const replaced = composer.media && composer.media.kind === "video";
+
+    setComposerMedia("image", file);
+
+    setMsg("postMsg", replaced
+        ? "Your video was replaced by this photo. A post can have a photo or a video."
+        : "", "info");
+}
+
+function previewPostVideo(event) {
+
+    const file = event.target.files[0];
+
+    if (!file) return;
+
+    const problem = videoProblem(file);
+
+    if (problem) {
+        event.target.value = "";
+        setMsg("postMsg", problem, "error");
+        showToast(problem);
+        return;
+    }
+
+    const replaced = composer.media && composer.media.kind === "image";
+
+    setComposerMedia("video", file);
+
+    setMsg("postMsg", replaced
+        ? "Your photo was replaced by this video. A post can have a photo or a video."
+        : "", "info");
+}
+
+function removeSelectedImage() {
+    clearComposerMedia();
+    setMsg("postMsg", "");
+}
+
+function removeSelectedVideo() {
+    clearComposerMedia();
+    setMsg("postMsg", "");
+}
+
+// Throws away the draft completely (new token too)
+function discardComposer() {
+
+    if (composer.upload) composer.upload.abort();
+
+    composer.uploading = false;
+    composer.upload = null;
+    composer.token = null;
+
+    const box = byId("postText");
+    if (box) box.value = "";
+
+    clearComposerMedia(true);
+    hideUploadProgress();
+    setComposerBusy(false);
+    setMsg("postMsg", "");
+    updateComposer();
+}
+
+function cancelPost() {
+
+    if (composer.uploading) {
+        cancelUpload();
+        return;
+    }
+
+    discardComposer();
+    closeModal("postModal");
+}
+
+function cancelUpload() {
+
+    if (composer.upload) composer.upload.abort();
+}
+
+function showUploadProgress(fraction) {
+
+    const box = byId("postProgress");
+    const percent = Math.round(Math.min(1, fraction) * 100);
+
+    box.classList.remove("hidden");
+    box.setAttribute("aria-valuenow", String(percent));
+
+    byId("postProgressBar").style.width = percent + "%";
+    byId("postProgressText").textContent =
+        fraction >= 1 ? "Upload finished. Publishing your post..." : "Uploading " + percent + "%";
+}
+
+function hideUploadProgress() {
+
+    const box = byId("postProgress");
+
+    if (box) box.classList.add("hidden");
+}
+
+function setComposerBusy(busy) {
+
+    ["postText", "postImage", "postVideo"].forEach(id => { byId(id).disabled = busy; });
+
+    byId("postModal").classList.toggle("busy", busy);
+
+    byId("postCancel").textContent = busy && composer.uploading ? "Cancel upload" : "Cancel";
+}
+
+// fetch() cannot report upload progress, so media posts use XMLHttpRequest
+function uploadWithProgress(path, formData, onProgress) {
+
+    const xhr = new XMLHttpRequest();
+
+    const promise = new Promise((resolve, reject) => {
+
+        xhr.open("POST", API_URL + path);
+
+        const token = localStorage.getItem(TOKEN_KEY);
+        if (token) xhr.setRequestHeader("Authorization", "Bearer " + token);
+
+        xhr.upload.onprogress = event => {
+            if (event.lengthComputable) onProgress(event.loaded / event.total);
+        };
+
+        xhr.onload = () => {
+
+            let data = {};
+
+            try { data = JSON.parse(xhr.responseText); } catch (error) { /* not JSON */ }
+
+            if (xhr.status === 401) {
+                showToast("Session expired. Please log in again.");
+                logout();
+                const expired = new Error("Session expired");
+                expired.status = 401;
+                reject(expired);
+                return;
+            }
+
+            if (xhr.status >= 200 && xhr.status < 300) {
+                resolve(data);
+                return;
+            }
+
+            const failure = new Error(data.message || "Something went wrong. Please try again.");
+            failure.status = xhr.status;
+            failure.data = data;
+            reject(failure);
+        };
+
+        xhr.onerror = () => {
+            reject(new Error("Can't reach the PLAYHUB server. Check your connection and try again."));
+        };
+
+        xhr.onabort = () => {
+            const cancelled = new Error("Upload cancelled");
+            cancelled.aborted = true;
+            reject(cancelled);
+        };
+
+        xhr.send(formData);
+    });
+
+    return { promise: promise, abort: () => xhr.abort() };
+}
+
+async function createPost() {
+
+    if (feedState.posting) return;
+
+    const text = byId("postText").value.trim();
+    const media = composer.media;
+
+    if (!text && !media) {
+        setMsg("postMsg", "Write something or add a photo or video", "error");
+        return;
+    }
+
+    if (text.length > POST_MAX_CHARS) {
+        setMsg("postMsg", "Posts can be up to " + POST_MAX_CHARS + " characters", "error");
+        return;
+    }
+
+    // one token per post: if this request is ever repeated, the server returns the same post
+    composer.token = composer.token || newPostToken();
+
+    const button = byId("postSubmit");
+    const label = button.textContent;
+
+    feedState.posting = true;
+    button.disabled = true;
+    button.textContent = "Posting...";
+    setMsg("postMsg", "");
+
+    let published = null;
+
+    try {
+
+        let post;
+
+        if (media) {
+            const form = new FormData();
+            form.append(media.kind === "video" ? "video" : "image", media.file);
+            if (text) form.append("text", text);
+            form.append("client_token", composer.token);
+
+            composer.uploading = true;
+            setComposerBusy(true);
+            showUploadProgress(0);
+
+            composer.upload = uploadWithProgress("/posts", form, showUploadProgress);
+            post = await composer.upload.promise;
+        } else {
+            setComposerBusy(true);
+            post = await api("/posts", { method: "POST", body: { text: text, client_token: composer.token } });
+        }
+
+        published = post;
+
+    } catch (error) {
+
+        if (error.aborted) {
+            setMsg("postMsg", "Upload cancelled. Your post is still here if you want to try again.", "info");
+        } else {
+            setMsg("postMsg", friendlyError(error), "error");
+            showToast(friendlyError(error));          // the draft stays so nothing is lost
+        }
+    }
+
+    composer.uploading = false;
+    composer.upload = null;
+    feedState.posting = false;
+
+    button.textContent = label;
+    hideUploadProgress();
+    setComposerBusy(false);
+
+    if (published) {
+
+        // A repeated request returns the very same post (same id AND same time).
+        // The same id with another time is a stale leftover (ids can be reused
+        // after a delete), so that old entry is dropped instead.
+        const existing = posts.find(p => p.id === published.id);
+        const already = !!existing && existing.created_at === published.created_at;
+
+        if (existing && !already) {
+            posts = posts.filter(p => p.id !== published.id);
+            document.querySelectorAll('.post-card[data-post-id="' + published.id + '"]')
+                .forEach(node => node.remove());
+        }
+
+        if (!already) {
+            posts.unshift(storePost(published));
+
+            currentUser.posts_count = (currentUser.posts_count || 0) + 1;
+            updateProfile();
+
+            if (posts.length === 1) {
+                renderPosts();
+            } else {
+                const card = postCard(posts[0]);
+                card.classList.add("enter");
+                byId("feedContainer").prepend(card);
+            }
+        }
+
+        discardComposer();
+        closeModal("postModal");
+        showToast("Post published");
+    }
+
+    updateComposer();
+}
+
+
+/* =====================================================================
+   THREE-DOT POST MENU AND ITS ACTIONS
+   ===================================================================== */
+
+const menuState = { button: null };
+
+function postMenuItems(p) {
+
+    const items = [];
+
+    if (p.mine) items.push({ label: "Edit post", icon: "pencil", run: openEditPost });
+
+    items.push({ label: p.saved ? "Unsave post" : "Save post", icon: "bookmark", run: toggleSavePost });
+    items.push({ label: "Copy post link", icon: "link", run: copyPostLink });
+
+    if (!p.mine) {
+        items.push({ label: "Hide post", icon: "eyeOff", run: hidePost });
+        items.push({ label: "Report post", icon: "flag", run: openReport });
+    }
+
+    if (p.mine) {
+        items.push({ separator: true });
+        items.push({ label: "Delete post", icon: "trash", danger: true, run: confirmDeletePost });
+    }
+
+    return items;
+}
+
+function openPostMenu(id, button) {
+
+    closePostMenu();
+
+    const p = postStore.get(id);
+
+    if (!p) return;
+
+    const layer = byId("postMenuLayer");
+    const menu = byId("postMenu");
+
+    menu.replaceChildren();
+
+    postMenuItems(p).forEach(item => {
+
+        if (item.separator) {
+            menu.append(el("div", "menu-sep"));
+            return;
+        }
+
+        const row = el("button", "menu-item" + (item.danger ? " danger" : ""));
+        row.type = "button";
+        row.setAttribute("role", "menuitem");
+        row.append(feedIcon(item.icon, 18), document.createTextNode(item.label));
+        row.addEventListener("click", () => {
+            closePostMenu(true);
+            item.run(postStore.get(id) || p);
+        });
+
+        menu.append(row);
+    });
+
+    const sheet = window.innerWidth <= 650;
+
+    layer.classList.toggle("sheet", sheet);
+    layer.classList.remove("hidden");
+
+    if (!sheet) {
+        const rect = button.getBoundingClientRect();
+        const width = 232;
+
+        menu.style.left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8)) + "px";
+        menu.style.top = (rect.bottom + 6) + "px";
+
+        const height = menu.offsetHeight || 0;
+
+        if (height && rect.bottom + 6 + height > window.innerHeight - 8) {
+            menu.style.top = Math.max(8, rect.top - height - 6) + "px";
+        }
+    } else {
+        menu.style.left = menu.style.top = "";
+    }
+
+    button.setAttribute("aria-expanded", "true");
+    menuState.button = button;
+
+    document.addEventListener("keydown", postMenuKeys);
+    window.addEventListener("resize", closePostMenu);
+    if (!sheet) window.addEventListener("scroll", closePostMenu, true);
+
+    const first = menu.querySelector("button");
+    if (first) first.focus();
+}
+
+function closePostMenu(skipFocus) {
+
+    const layer = byId("postMenuLayer");
+
+    if (!layer || layer.classList.contains("hidden")) return;
+
+    layer.classList.add("hidden");
+
+    document.removeEventListener("keydown", postMenuKeys);
+    window.removeEventListener("resize", closePostMenu);
+    window.removeEventListener("scroll", closePostMenu, true);
+
+    const button = menuState.button;
+    menuState.button = null;
+
+    if (button) {
+        button.setAttribute("aria-expanded", "false");
+        if (skipFocus !== true && button.isConnected) button.focus();
+    }
+}
+
+function postMenuKeys(event) {
+
+    const items = Array.from(byId("postMenu").querySelectorAll("button"));
+    const at = items.indexOf(document.activeElement);
+
+    if (event.key === "Escape") { closePostMenu(); event.preventDefault(); }
+    if (event.key === "ArrowDown") { items[(at + 1) % items.length].focus(); event.preventDefault(); }
+    if (event.key === "ArrowUp") { items[(at - 1 + items.length) % items.length].focus(); event.preventDefault(); }
+    if (event.key === "Tab") closePostMenu(true);
+}
+
+/* ---- a reusable "Are you sure?" dialog ---- */
+
+function showConfirm(options) {
+
+    byId("confirmTitle").textContent = options.title;
+    byId("confirmText").textContent = options.text;
+    setMsg("confirmMsg", "");
+
+    const ok = byId("confirmOk");
+
+    ok.textContent = options.confirm;
+    ok.className = "pbtn " + (options.danger ? "danger" : "primary");
+    ok.disabled = false;
+    byId("confirmCancel").disabled = false;
+
+    ok.onclick = async () => {
+
+        ok.disabled = true;
+        byId("confirmCancel").disabled = true;
+        ok.textContent = options.busy || "Working...";
+
+        try {
+            await options.onConfirm();
+            closeModal("confirmModal");
+        } catch (error) {
+            setMsg("confirmMsg", friendlyError(error), "error");
+            ok.disabled = false;
+            byId("confirmCancel").disabled = false;
+            ok.textContent = options.confirm;
+        }
+    };
+
+    byId("confirmModal").classList.remove("hidden");
+    byId("confirmCancel").focus();
+}
+
+function confirmDeletePost(p) {
+
+    showConfirm({
+        title: "Delete this post?",
+        text: "This permanently deletes the post with its likes, comments and any photo or video. This can't be undone.",
+        confirm: "Delete",
+        busy: "Deleting...",
+        danger: true,
+        onConfirm: () => deletePost(p.id)
+    });
+}
+
+/* ---- edit ---- */
+
+let editingPostId = null;
+
+function openEditPost(p) {
+
+    editingPostId = p.id;
+
+    byId("editPostText").value = p.content || "";
+    setMsg("editPostMsg", "");
+    updateEditCount();
+
+    byId("editPostModal").classList.remove("hidden");
+    byId("editPostText").focus();
+}
+
+function updateEditCount() {
+
+    const n = byId("editPostText").value.length;
+    const counter = byId("editPostCount");
+
+    counter.textContent = n + "/" + POST_MAX_CHARS;
+    counter.classList.toggle("over", n > POST_MAX_CHARS);
+}
+
+function closeEditPost() {
+    editingPostId = null;
+    closeModal("editPostModal");
+}
+
+function syncPostText(id) {
+
+    const p = postStore.get(id);
+
+    document.querySelectorAll('.post-card[data-post-id="' + id + '"]').forEach(card => {
+
+        let text = card.querySelector(".post-text");
+
+        if (p.content) {
+            if (!text) {
+                text = el("p", "post-text");
+                card.querySelector(".post-head").after(text);
+            }
+            text.textContent = p.content;
+        } else if (text) {
+            text.remove();
+        }
+
+        card.querySelector(".post-who small").textContent = postMetaText(p);
+    });
+}
+
+async function saveEditedPost() {
+
+    const id = editingPostId;
+    const p = postStore.get(id);
+
+    if (!p) return;
+
+    const text = byId("editPostText").value.trim();
+
+    if (!text && !p.image_url && !p.video_url) {
+        setMsg("editPostMsg", "A post needs some text, a photo or a video", "error");
+        return;
+    }
+
+    if (text.length > POST_MAX_CHARS) {
+        setMsg("editPostMsg", "Posts can be up to " + POST_MAX_CHARS + " characters", "error");
+        return;
+    }
+
+    const button = byId("editPostSave");
+    setBusy(button, true, "Saving...");
+
+    try {
+        const saved = await api("/posts/" + id, { method: "PUT", body: { text: text } });
+
+        Object.assign(p, saved);
+        syncPostText(id);
+
+        closeEditPost();
+        showToast("Post updated");
+
+    } catch (error) {
+        setMsg("editPostMsg", friendlyError(error), "error");
+    }
+
+    setBusy(button, false);
+}
+
+/* ---- save, copy link, hide, report ---- */
+
+async function toggleSavePost(p) {
+
+    const wasSaved = p.saved;
+
+    try {
+        await api("/posts/" + p.id + "/save", { method: wasSaved ? "DELETE" : "POST" });
+
+        p.saved = !wasSaved;
+        showToast(wasSaved ? "Removed from saved posts" : "Post saved");
+
+        // unsaving inside the Saved posts list takes the card out of it
+        if (wasSaved) {
+            const list = byId("savedPostsList");
+            const card = list && list.querySelector('.post-card[data-post-id="' + p.id + '"]');
+
+            if (card) {
+                card.remove();
+                if (!list.querySelector(".post-card")) renderSavedEmpty();
+            }
+        }
+
+    } catch (error) {
+        showToast(friendlyError(error));
+    }
+}
+
+function postLink(id) {
+    return location.origin + location.pathname + "?post=" + id;
+}
+
+async function copyPostLink(p) {
+
+    const link = postLink(p.id);
+
+    try {
+        await navigator.clipboard.writeText(link);
+        showToast("Link copied");
+        return;
+    } catch (error) {
+        // fall through to the older way
+    }
+
+    try {
+        const box = document.createElement("textarea");
+        box.value = link;
+        box.style.position = "fixed";
+        box.style.opacity = "0";
+        document.body.append(box);
+        box.select();
+        const copied = document.execCommand("copy");
+        box.remove();
+
+        if (copied) {
+            showToast("Link copied");
+            return;
+        }
+    } catch (error) {
+        // nothing else to try
+    }
+
+    showToast("Couldn't copy. The link is: " + link);
+}
+
+function collapsePost(p, message, allowUndo) {
+
+    document.querySelectorAll('.post-card[data-post-id="' + p.id + '"]').forEach(card => {
+
+        const note = el("div", "post-hidden");
+        note.dataset.postId = p.id;
+        note.append(el("span", null, message));
+
+        if (allowUndo) {
+            note.append(actionButton("Undo", "ghost", async () => {
+                try {
+                    await api("/posts/" + p.id + "/hide", { method: "DELETE" });
+                    note.replaceWith(postCard(p));
+                } catch (error) {
+                    showToast(friendlyError(error));
+                }
+            }));
+        }
+
+        card.replaceWith(note);
+    });
+}
+
+async function hidePost(p) {
+
+    try {
+        await api("/posts/" + p.id + "/hide", { method: "POST" });
+        collapsePost(p, "Post hidden. You won't see it in your feed.", true);
+    } catch (error) {
+        showToast(friendlyError(error));
+    }
+}
+
+let reportingPostId = null;
+
+function openReport(p) {
+
+    reportingPostId = p.id;
+
+    document.querySelectorAll('input[name="reportReason"]').forEach(r => { r.checked = false; });
+    byId("reportDetails").value = "";
+    setMsg("reportMsg", "");
+
+    byId("reportModal").classList.remove("hidden");
+}
+
+async function submitReport() {
+
+    const chosen = document.querySelector('input[name="reportReason"]:checked');
+
+    if (!chosen) {
+        setMsg("reportMsg", "Please choose a reason", "error");
+        return;
+    }
+
+    const p = postStore.get(reportingPostId);
+    const button = byId("reportSubmit");
+
+    setBusy(button, true, "Sending...");
+
+    try {
+        const result = await api("/posts/" + reportingPostId + "/report", {
+            method: "POST",
+            body: { reason: chosen.value, details: byId("reportDetails").value.trim() }
+        });
+
+        closeModal("reportModal");
+        showToast(result.message);
+
+        if (p) collapsePost(p, "Thanks for reporting. We'll review this post.", false);
+
+    } catch (error) {
+        setMsg("reportMsg", friendlyError(error), "error");
+    }
+
+    setBusy(button, false);
+}
+
+
+/* =====================================================================
+   SAVED POSTS AND SHARED POST LINKS
+   ===================================================================== */
+
+const saved = { posts: [], hasMore: false, loading: false };
+
+async function openSavedPosts() {
+
+    byId("savedPostsModal").classList.remove("hidden");
+
+    saved.posts = [];
+    saved.hasMore = false;
+
+    await loadSavedPosts(false);
+}
+
+function renderSavedEmpty() {
+
+    byId("savedPostsList").replaceChildren(
+        stateBlock("bookmark", "No saved posts yet",
+            "Open the three-dot menu on a post and choose Save post to keep it here."));
+}
+
+async function loadSavedPosts(more) {
+
+    if (saved.loading) return;
+
+    saved.loading = true;
+
+    const list = byId("savedPostsList");
+
+    if (!more) list.replaceChildren(skeletonRows(2));
+
+    try {
+        const last = saved.posts.length ? saved.posts[saved.posts.length - 1].id : null;
+        const data = await api("/posts/saved" + (more && last ? "?before_id=" + last : ""));
+
+        const fresh = data.posts.map(storePost);
+        saved.posts = more ? saved.posts.concat(fresh) : fresh;
+        saved.hasMore = data.has_more;
+
+        list.querySelector(".load-more-posts")?.remove();
+
+        if (!more) list.replaceChildren();
+
+        if (saved.posts.length === 0) {
+            renderSavedEmpty();
+        } else {
+            fresh.forEach(p => list.append(postCard(p)));
+
+            if (saved.hasMore) {
+                const button = actionButton("Load more", "ghost", () => loadSavedPosts(true));
+                button.classList.add("load-more-posts");
+                list.append(button);
+            }
+        }
+
+    } catch (error) {
+        list.replaceChildren(stateBlock("alert", "Couldn't load your saved posts",
+            friendlyError(error), () => loadSavedPosts(false)));
+    }
+
+    saved.loading = false;
+}
+
+// Someone opened PlayHub with a copied post link (?post=123)
+feedState.linkedPost = null;
+
+(function readPostLink() {
+
+    const id = Number(new URLSearchParams(location.search).get("post"));
+
+    if (!id) return;
+
+    feedState.linkedPost = id;
+
+    // clean the address bar so a refresh doesn't open it again
+    try { history.replaceState(null, "", location.pathname + location.hash); } catch (error) { /* ignore */ }
+})();
+
+async function openLinkedPost() {
+
+    const id = feedState.linkedPost;
+
+    if (!id) return;
+
+    feedState.linkedPost = null;
+
+    const body = byId("postViewBody");
+
+    body.replaceChildren(skeletonRows(1));
+    byId("postViewModal").classList.remove("hidden");
+
+    try {
+        const post = await api("/posts/" + id);
+
+        body.replaceChildren(postCard(storePost(post)));
+
+    } catch (error) {
+        body.replaceChildren(stateBlock("alert", "This post isn't available",
+            "It may have been deleted, or it's only shared with the author's friends."));
+    }
+}
+
+
+/* =====================================================================
+   IN-APP PHOTO VIEWER (nothing opens in a new tab)
+   ===================================================================== */
+
+const imgViewer = { items: [], index: 0, open: false, pushed: false, zoomed: false, opener: null, touchX: 0 };
+
+function openPostPhoto(card) {
+
+    const group = card.closest("#feedContainer, #userProfileBody, #savedPostsList, #postViewBody")
+        || card.parentElement;
+
+    const cards = Array.from(group.querySelectorAll(".post-card[data-image-url]"));
+
+    const items = cards.map(c => {
+        const p = postStore.get(Number(c.dataset.postId));
+        return {
+            url: c.dataset.imageUrl,
+            caption: p ? p.author.full_name + (p.content ? ": " + p.content : "") : ""
+        };
+    });
+
+    openImageViewer(items, Math.max(0, cards.indexOf(card)));
+}
+
+function openImageViewer(items, index) {
+
+    if (!items || !items.length) return;
+
+    imgViewer.items = items;
+    imgViewer.index = Math.max(0, Math.min(index || 0, items.length - 1));
+    imgViewer.zoomed = false;
+    imgViewer.opener = document.activeElement;
+
+    const wasOpen = imgViewer.open;
+    imgViewer.open = true;
+
+    byId("imageViewer").classList.remove("hidden");
+    document.body.classList.add("no-scroll");
+
+    // the browser's Back button closes the viewer instead of leaving PlayHub
+    if (!wasOpen) {
+        try {
+            history.pushState({ playhubViewer: true }, "");
+            imgViewer.pushed = true;
+        } catch (error) {
+            imgViewer.pushed = false;
+        }
+
+        document.addEventListener("keydown", viewerKeys);
+    }
+
+    renderImageViewer();
+    byId("ivClose").focus();
+}
+
+function renderImageViewer() {
+
+    const item = imgViewer.items[imgViewer.index];
+    const many = imgViewer.items.length > 1;
+
+    const img = byId("ivImage");
+    const stage = byId("ivStage");
+
+    stage.classList.remove("zoomed");
+    stage.classList.add("loading");
+    imgViewer.zoomed = false;
+
+    img.onload = () => stage.classList.remove("loading");
+    img.onerror = () => stage.classList.remove("loading");
+    img.src = item.url;
+    img.alt = item.caption || "Photo";
+
+    byId("ivCaption").textContent = item.caption || "";
+    byId("ivCount").textContent = many ? (imgViewer.index + 1) + " / " + imgViewer.items.length : "";
+
+    byId("ivPrev").classList.toggle("hidden", !many);
+    byId("ivNext").classList.toggle("hidden", !many);
+
+    byId("ivZoom").replaceChildren(feedIcon("zoomIn", 20));
+    byId("ivZoom").setAttribute("aria-label", "Zoom in");
+}
+
+function viewerStep(direction) {
+
+    const n = imgViewer.items.length;
+
+    if (n < 2) return;
+
+    imgViewer.index = (imgViewer.index + direction + n) % n;
+    renderImageViewer();
+}
+
+function viewerToggleZoom() {
+
+    imgViewer.zoomed = !imgViewer.zoomed;
+
+    byId("ivStage").classList.toggle("zoomed", imgViewer.zoomed);
+
+    const zoom = byId("ivZoom");
+    zoom.replaceChildren(feedIcon(imgViewer.zoomed ? "zoomOut" : "zoomIn", 20));
+    zoom.setAttribute("aria-label", imgViewer.zoomed ? "Zoom out" : "Zoom in");
+}
+
+function viewerKeys(event) {
+
+    if (event.key === "Escape") closeImageViewer();
+    if (event.key === "ArrowLeft") viewerStep(-1);
+    if (event.key === "ArrowRight") viewerStep(1);
+}
+
+function finishCloseViewer() {
+
+    imgViewer.open = false;
+    imgViewer.pushed = false;
+
+    byId("imageViewer").classList.add("hidden");
+    byId("ivImage").removeAttribute("src");
+
+    document.body.classList.remove("no-scroll");
+    document.removeEventListener("keydown", viewerKeys);
+
+    const opener = imgViewer.opener;
+    imgViewer.opener = null;
+
+    if (opener && opener.isConnected && opener.focus) opener.focus({ preventScroll: true });
+}
+
+function closeImageViewer(immediately) {
+
+    if (!imgViewer.open) return;
+
+    // Go back one history step; popstate (below) then finishes closing it.
+    if (imgViewer.pushed && immediately !== true) {
+        history.back();
+        return;
+    }
+
+    finishCloseViewer();
+}
+
+window.addEventListener("popstate", () => {
+    if (imgViewer.open) finishCloseViewer();
+});
+
+function viewerTouchStart(event) {
+    imgViewer.touchX = event.changedTouches[0].clientX;
+}
+
+function viewerTouchEnd(event) {
+
+    const dx = event.changedTouches[0].clientX - imgViewer.touchX;
+
+    if (!imgViewer.zoomed && Math.abs(dx) > 60) viewerStep(dx < 0 ? 1 : -1);
+}
+
+
+/* ---- small things wired once ---- */
+
+document.addEventListener("DOMContentLoaded", () => {
+
+    const layer = byId("postMenuLayer");
+
+    if (layer) {
+        layer.addEventListener("click", event => {
+            if (event.target === layer) closePostMenu();
+        });
+    }
+
+    const text = byId("postText");
+
+    if (text) {
+        text.addEventListener("keydown", event => {
+            if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                event.preventDefault();
+                createPost();
+            }
+        });
+    }
+
+    const stage = byId("ivStage");
+
+    if (stage) {
+        stage.addEventListener("touchstart", viewerTouchStart, { passive: true });
+        stage.addEventListener("touchend", viewerTouchEnd, { passive: true });
+
+        // clicking the dark area around the photo closes the viewer
+        stage.addEventListener("click", event => {
+            if (event.target === stage) closeImageViewer();
         });
     }
 });

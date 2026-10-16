@@ -358,16 +358,23 @@ function messageNode(m) {
     const bubble = el("div", "msg-bubble" + (m.image_url ? " has-image" : ""));
 
     if (m.image_url) {
-        const link = el("a", "msg-image-link");
-        link.href = API_URL + m.image_url;
-        link.target = "_blank";
-        link.rel = "noopener noreferrer";
+                const link = el("button", "msg-image-link");
+        link.type = "button";
+        link.setAttribute("aria-label", "Open photo");
+
 
         const img = el("img", "msg-image");
         img.src = API_URL + m.image_url;
         img.alt = "Image message";
         img.loading = "lazy";
-        img.addEventListener("load", () => scrollChatToBottom(false));
+                img.addEventListener("load", () => scrollChatToBottom(false));
+
+        // opens inside PlayHub, with the other photos of this chat a swipe away
+        link.addEventListener("click", () => {
+            const all = Array.from(document.querySelectorAll("#chatMessages .msg-image"));
+            openImageViewer(all.map(i => ({ url: i.src, caption: "" })), Math.max(0, all.indexOf(img)));
+        });
+
         link.append(img);
         bubble.append(link);
     }
