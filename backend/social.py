@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from accounts import get_privacy
 from auth import login_required
 from database import db
-from models import FriendRequest, Friendship, Post, Profile, User
+from models import FriendRequest, Friendship, Post, Profile, User, UserBlock
 from profiles import avatar_url, preload_avatars
 
 social_bp = Blueprint("social", __name__)
@@ -350,6 +350,15 @@ def send_request():
     if target.id == g.me_id:
         return _error("You can't add yourself as a friend", 400)
 
+    blocked = UserBlock.query.filter(
+        or_(
+            and_(UserBlock.blocker_id == g.me_id, UserBlock.blocked_id == target.id),
+            and_(UserBlock.blocker_id == target.id, UserBlock.blocked_id == g.me_id),
+        )
+    ).first()
+    if blocked:
+        return _error("A block prevents this friend request", 403)
+
     rel = _relationships(g.me_id, [target.id])[target.id]
 
     if rel["status"] == "friends":
@@ -404,6 +413,15 @@ def accept_request(request_id):
 
     if fr.status != "pending":
         return _error("This request has already been handled", 409)
+
+    blocked = UserBlock.query.filter(
+        or_(
+            and_(UserBlock.blocker_id == fr.sender_id, UserBlock.blocked_id == fr.receiver_id),
+            and_(UserBlock.blocker_id == fr.receiver_id, UserBlock.blocked_id == fr.sender_id),
+        )
+    ).first()
+    if blocked:
+        return _error("A block prevents this friend request", 403)
 
     low, high = _pair(fr.sender_id, fr.receiver_id)
 

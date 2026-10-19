@@ -15,7 +15,7 @@ from flask import Blueprint, Response, abort, jsonify, request
 
 from database import db
 from models import (
-    Post, PostReport, User, delete_post_completely, delete_user_completely
+    Post, PostReport, User, UserReport, delete_post_completely, delete_user_completely
 )
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
@@ -152,6 +152,34 @@ def list_reports():
     return jsonify(result)
 
 
+@admin_bp.route("/api/user-reports")
+def list_user_reports():
+    reports = UserReport.query.filter_by(status="open").order_by(UserReport.created_at.desc(), UserReport.id.desc()).all()
+    ids = {r.reporter_id for r in reports} | {r.reported_user_id for r in reports}
+    users = {u.id: u for u in User.query.filter(User.id.in_(ids)).all()} if ids else {}
+    return jsonify([{
+        "id": r.id,
+        "reporter_id": r.reporter_id,
+        "reporter": users[r.reporter_id].username if r.reporter_id in users else "(deleted)",
+        "reported_user_id": r.reported_user_id,
+        "reported_user": users[r.reported_user_id].username if r.reported_user_id in users else "(deleted)",
+        "reason": r.reason,
+        "details": r.details or "",
+        "created_at": r.created_at.isoformat() + "Z",
+    } for r in reports])
+
+
+@admin_bp.route("/api/user-reports/<int:report_id>/review", methods=["POST"])
+def review_user_report(report_id):
+    report = db.session.get(UserReport, report_id)
+    if not report:
+        return jsonify({"message": "User report not found"}), 404
+    report.status = "reviewed"
+    report.reviewed_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({"message": "User report marked as reviewed"})
+
+
 @admin_bp.route("/api/reports/<int:post_id>/dismiss", methods=["POST"])
 def dismiss_reports(post_id):
     """The post is fine: clear the reports against it."""
@@ -252,8 +280,14 @@ ADMIN_HTML = """<!DOCTYPE html>
 <main>
   <div class="tabs">
     <button id="tabUsers" class="active">Users</button>
-    <button id="tabReports">Reports <span id="reportCount"></span></button>
+    <button id="tabReports">Post reports <span id="reportCount"></span></button>
+    <button id="tabUserReports">User reports <span id="userReportCount"></span></button>
   </div>
+
+  <section id="userReportsPanel" hidden>
+    <div class="summary" id="userReportSummary"></div>
+    <div class="table-wrap" id="userReportList"></div>
+  </section>
 
   <section id="reportsPanel" hidden>
     <div class="summary" id="reportSummary"></div>
@@ -440,26 +474,75 @@ ADMIN_HTML = """<!DOCTYPE html>
     }
   }
 
-  function showTab(name) {
-    const reports = name === "reports";
-    document.getElementById("usersPanel").hidden = reports;
-    document.getElementById("reportsPanel").hidden = !reports;
-    document.getElementById("tabUsers").classList.toggle("active", !reports);
-    document.getElementById("tabReports").classList.toggle("active", reports);
-    if (reports) loadReports();
+  async function loadUserReports() {
+    const res = await fetch("/admin/api/user-reports", { headers: HEADERS });
+    if (!res.ok) { toast("Could not load user reports (" + res.status + ")"); return; }
+    renderUserReports(await res.json());
   }
 
+  function renderUserReports(reports) {
+    const list = document.getElementById("userReportList");
+    list.replaceChildren();
+    document.getElementById("userReportCount").textContent = reports.length ? "(" + reports.length + ")" : "";
+    document.getElementById("userReportSummary").textContent = reports.length + (reports.length === 1 ? " open user report" : " open user reports");
+    if (!reports.length) {
+      const none = document.createElement("div"); none.className = "empty";
+      none.textContent = "No open user reports. Nothing needs your attention."; list.append(none); return;
+    }
+    for (const r of reports) {
+      const box = document.createElement("div"); box.className = "report";
+      const top = document.createElement("div"); top.className = "top";
+      const title = document.createElement("strong"); title.textContent = "@" + r.reported_user + " reported by @" + r.reporter;
+      const actions = document.createElement("div"); actions.className = "actions";
+      const review = document.createElement("button"); review.textContent = "Mark reviewed";
+      review.onclick = async () => {
+        if (!confirm("Mark this user report as reviewed?")) return;
+        const res = await fetch("/admin/api/user-reports/" + r.id + "/review", { method: "POST", headers: HEADERS });
+        const data = await res.json().catch(() => ({}));
+        toast(res.ok ? (data.message || "Report reviewed") : (data.message || "Review failed"));
+        if (res.ok) loadUserReports();
+      };
+      const del = document.createElement("button"); del.className = "danger"; del.textContent = "Delete reported user";
+      del.onclick = async () => {
+        if (!confirm("Permanently delete @" + r.reported_user + " and their account data? This cannot be undone.")) return;
+        const res = await fetch("/admin/api/users/" + r.reported_user_id, { method: "DELETE", headers: HEADERS });
+        const data = await res.json().catch(() => ({}));
+        toast(res.ok ? "Reported user deleted" : (data.message || "Delete failed"));
+        if (res.ok) { loadUserReports(); load(); }
+      };
+      actions.append(review, del); top.append(title, actions);
+      const reason = document.createElement("div"); reason.className = "text"; reason.textContent = "Reason: " + r.reason;
+      const details = document.createElement("div"); details.className = "text"; details.textContent = r.details || "No additional details provided.";
+      const meta = document.createElement("div"); meta.className = "meta"; meta.textContent = "Reported " + new Date(r.created_at).toLocaleString();
+      box.append(top, reason, details, meta); list.append(box);
+    }
+  }
+
+  function showTab(name) {
+    const posts = name === "reports", userReports = name === "user-reports";
+    document.getElementById("usersPanel").hidden = posts || userReports;
+    document.getElementById("reportsPanel").hidden = !posts;
+    document.getElementById("userReportsPanel").hidden = !userReports;
+    document.getElementById("tabUsers").classList.toggle("active", name === "users");
+    document.getElementById("tabReports").classList.toggle("active", posts);
+    document.getElementById("tabUserReports").classList.toggle("active", userReports);
+    if (posts) loadReports(); if (userReports) loadUserReports();
+  }
   document.getElementById("tabUsers").onclick = () => showTab("users");
   document.getElementById("tabReports").onclick = () => showTab("reports");
-
+  document.getElementById("tabUserReports").onclick = () => showTab("user-reports");
   document.getElementById("refresh").onclick = () => {
     load();
     if (!document.getElementById("reportsPanel").hidden) loadReports();
+    if (!document.getElementById("userReportsPanel").hidden) loadUserReports();
   };
   search.addEventListener("input", render);
   load();
   fetch("/admin/api/reports", { headers: HEADERS }).then(r => r.ok ? r.json() : []).then(list => {
     document.getElementById("reportCount").textContent = list.length ? "(" + list.length + ")" : "";
+  });
+  fetch("/admin/api/user-reports", { headers: HEADERS }).then(r => r.ok ? r.json() : []).then(list => {
+    document.getElementById("userReportCount").textContent = list.length ? "(" + list.length + ")" : "";
   });
 </script>
 </body>

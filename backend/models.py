@@ -156,7 +156,7 @@ class Conversation(db.Model):
 
 class Message(db.Model):
     """
-    message_type: TEXT | IMAGE | GAME_CHALLENGE | GAME_RESULT | SYSTEM
+    message_type: TEXT | IMAGE | AUDIO | STICKER | GAME_CHALLENGE | GAME_RESULT | SYSTEM
     Images are stored as files; only the generated file name lives here.
     """
 
@@ -173,12 +173,44 @@ class Message(db.Model):
 
     body = db.Column(db.String(2000), nullable=True)
     image_filename = db.Column(db.String(64), nullable=True, index=True)
+    audio_filename = db.Column(db.String(64), nullable=True, index=True)
+    sticker_key = db.Column(db.String(32), nullable=True)
+    reply_to_id = db.Column(db.Integer, nullable=True, index=True)
+    edited_at = db.Column(db.DateTime, nullable=True)
 
     # Reserved for game challenge cards (added with game challenges)
     game_challenge_id = db.Column(db.Integer, nullable=True)
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     read_at = db.Column(db.DateTime, nullable=True)
+
+
+class MessageReaction(db.Model):
+    """One reaction per user and emoji for a message."""
+    id = db.Column(db.Integer, primary_key=True)
+    message_id = db.Column(db.Integer, db.ForeignKey("message.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True)
+    emoji = db.Column(db.String(16), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    __table_args__ = (UniqueConstraint("message_id", "user_id", "emoji", name="uq_message_reaction_user_emoji"),)
+
+
+class ChatPreference(db.Model):
+    """Per-user presentation preferences for one conversation."""
+    id = db.Column(db.Integer, primary_key=True)
+    conversation_id = db.Column(db.Integer, db.ForeignKey("conversation.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True)
+    theme = db.Column(db.String(20), nullable=False, default="default")
+    __table_args__ = (UniqueConstraint("conversation_id", "user_id", name="uq_chat_preference_user_conversation"),)
+
+
+class ChatTyping(db.Model):
+    """Short-lived typing status, expired by timestamp rather than explicit cleanup."""
+    id = db.Column(db.Integer, primary_key=True)
+    conversation_id = db.Column(db.Integer, db.ForeignKey("conversation.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    __table_args__ = (UniqueConstraint("conversation_id", "user_id", name="uq_chat_typing_user_conversation"),)
 
 
 class Post(db.Model):
@@ -489,6 +521,34 @@ class PostReport(db.Model):
     )
 
 
+class UserBlock(db.Model):
+    """A directional block: blocker prevents the blocked user from messaging them."""
+    id = db.Column(db.Integer, primary_key=True)
+    blocker_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+    blocked_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    __table_args__ = (
+        UniqueConstraint("blocker_id", "blocked_id", name="uq_user_block_pair"),
+        CheckConstraint("blocker_id != blocked_id", name="ck_user_block_not_self"),
+    )
+
+
+class UserReport(db.Model):
+    """A report about a user for review in the existing admin dashboard."""
+    id = db.Column(db.Integer, primary_key=True)
+    reporter_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+    reported_user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+    reason = db.Column(db.String(40), nullable=False)
+    details = db.Column(db.String(500), nullable=True)
+    status = db.Column(db.String(16), nullable=False, default="open", index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    reviewed_at = db.Column(db.DateTime, nullable=True)
+    __table_args__ = (
+        CheckConstraint("reporter_id != reported_user_id", name="ck_user_report_not_self"),
+        CheckConstraint("status IN ('open', 'reviewed')", name="ck_user_report_status"),
+    )
+
+
 def ensure_columns():
     """Add columns that newer versions of the app need to tables made by older
     versions. Safe to run every start: it only adds what is missing and never
@@ -500,6 +560,12 @@ def ensure_columns():
             ("video_filename", "VARCHAR(64)"),
             ("edited_at", "DATETIME"),
             ("client_token", "VARCHAR(40)"),
+        ],
+        "message": [
+            ("audio_filename", "VARCHAR(64)"),
+            ("sticker_key", "VARCHAR(32)"),
+            ("reply_to_id", "INTEGER"),
+            ("edited_at", "DATETIME"),
         ],
     }
 
@@ -562,12 +628,13 @@ def delete_user_completely(user):
     ]
 
     if conversation_ids:
-        files = [
-            m.image_filename for m in Message.query.filter(
-                Message.conversation_id.in_(conversation_ids),
-                Message.image_filename.isnot(None),
-            ).all()
-        ]
+        messages = Message.query.filter(Message.conversation_id.in_(conversation_ids)).all()
+        message_ids = [m.id for m in messages]
+        files = [m.image_filename for m in messages] + [m.audio_filename for m in messages]
+        if message_ids:
+            MessageReaction.query.filter(MessageReaction.message_id.in_(message_ids)).delete(synchronize_session=False)
+        ChatPreference.query.filter(ChatPreference.conversation_id.in_(conversation_ids)).delete(synchronize_session=False)
+        ChatTyping.query.filter(ChatTyping.conversation_id.in_(conversation_ids)).delete(synchronize_session=False)
         Message.query.filter(
             Message.conversation_id.in_(conversation_ids)
         ).delete(synchronize_session=False)
@@ -595,6 +662,12 @@ def delete_user_completely(user):
     SavedPost.query.filter_by(user_id=uid).delete(synchronize_session=False)
     HiddenPost.query.filter_by(user_id=uid).delete(synchronize_session=False)
     PostReport.query.filter_by(reporter_id=uid).delete(synchronize_session=False)
+    UserReport.query.filter(
+        or_(UserReport.reporter_id == uid, UserReport.reported_user_id == uid)
+    ).delete(synchronize_session=False)
+    UserBlock.query.filter(
+        or_(UserBlock.blocker_id == uid, UserBlock.blocked_id == uid)
+    ).delete(synchronize_session=False)
 
     # Their likes, comments and notifications on other people's posts
     PostLike.query.filter_by(user_id=uid).delete(synchronize_session=False)

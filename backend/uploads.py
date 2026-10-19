@@ -22,12 +22,14 @@ MAX_VIDEO_BYTES = 50 * 1024 * 1024  # 50 MB
 
 # Saved names are always random hex + one of these extensions
 SAFE_NAME = re.compile(r"^[0-9a-f]{32}\.(jpg|png|gif|webp)$")
+AUDIO_NAME = re.compile(r"^[0-9a-f]{32}\.(webm|ogg|mp4|wav)$")
 
 VIDEO_NAME = re.compile(r"^[0-9a-f]{32}\.(mp4|webm|mov)$")
 
 MIME = {
     "jpg": "image/jpeg", "png": "image/png", "gif": "image/gif", "webp": "image/webp",
     "mp4": "video/mp4", "webm": "video/webm", "mov": "video/quicktime",
+    "ogg": "audio/ogg", "wav": "audio/wav",
 }
 
 for _folder in (MESSAGE_DIR, POST_DIR, STORY_DIR, AVATAR_DIR):
@@ -195,9 +197,26 @@ def save_message_image(data, ext):
     return save_image(data, ext, MESSAGE_DIR)
 
 
+def detect_audio_type(data):
+    """Identify supported voice-note containers from their file signature."""
+    if data[:4] == b"OggS":
+        return "ogg"
+    if data[:4] == b"RIFF" and data[8:12] == b"WAVE":
+        return "wav"
+    if data[:4] == b"\x1aE\xdf\xa3" and b"webm" in data[:64]:
+        return "webm"
+    if len(data) >= 12 and data[4:8] == b"ftyp":
+        return "mp4"
+    return None
+
+
+def save_message_audio(data, ext):
+    return save_image(data, ext, MESSAGE_DIR)
+
+
 def delete_upload_files(names, folder=MESSAGE_DIR):
     for name in names:
-        if name and (SAFE_NAME.match(name) or VIDEO_NAME.match(name)):
+        if name and (SAFE_NAME.match(name) or AUDIO_NAME.match(name) or VIDEO_NAME.match(name)):
             try:
                 os.remove(os.path.join(folder, name))
             except OSError:
