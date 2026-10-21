@@ -12,7 +12,18 @@ const chat = {
     open: null,         // { user, messages, lastId, seenUpTo, hasMore, canMessage }
     pollTimer: null,
     sending: false,
-    pendingImage: null  // { file, previewUrl }
+    pendingImage: null,  // { file, previewUrl }
+    replyTo: null,
+    theme: "default",
+    typingTimer: null,
+    lastTypingSent: 0,
+    mediaRecorder: null,
+    voiceChunks: [],
+    recording: false,
+    discardVoiceNote: false,
+    stickerTrayOpen: false,
+    blocked: false,
+    blockedByMe: false
 };
 
 const CHAT_ICONS = {
@@ -58,12 +69,18 @@ function onMessagingClosed() {
 
     chat.unreadTimer = null;
     chat.pollTimer = null;
+    stopTypingSignal();
     chat.list = [];
     chat.open = null;
     chat.unread = 0;
     chat.sending = false;
 
     clearPendingImage();
+    if (chat.mediaRecorder && chat.mediaRecorder.state !== "inactive") chat.mediaRecorder.stop();
+    chat.mediaRecorder = null;
+    chat.voiceChunks = [];
+    chat.recording = false;
+    chat.replyTo = null;
 
     const view = document.getElementById("chatView");
     if (view) view.classList.add("hidden");
@@ -74,6 +91,8 @@ function onMessagingClosed() {
     });
 
     closeModal("newChatModal");
+    closeModal("reportUserModal");
+    closeChatMenu();
     setUnreadBadge(0);
 }
 
@@ -195,6 +214,7 @@ function renderConversations() {
 
         if (c.unread) meta.append(el("span", "unread-pill", String(c.unread)));
 
+        if (c.blocked) meta.append(el("small", "blocked-pill", "Blocked"));
         row.append(avatarWithStatus(c.user), info, meta);
         list.append(row);
     });
@@ -270,7 +290,12 @@ async function openChat(username) {
     social.openProfile = null;
 
     clearInterval(chat.pollTimer);
+    stopTypingSignal();
+    discardVoiceRecording();
     clearPendingImage();
+    chat.stickerTrayOpen = false;
+    const stickerTray = document.getElementById("chatStickerTray");
+    if (stickerTray) stickerTray.classList.add("hidden");
 
     chat.open = {
         user: { full_name: "", username: username, online: false },
@@ -279,9 +304,15 @@ async function openChat(username) {
         seenUpTo: 0,
         hasMore: false,
         canMessage: true,
+        blocked: false,
+        blockedByMe: false,
         loading: true,
-        error: null
+        error: null,
+        theme: "default",
+        otherTyping: false
     };
+    chat.replyTo = null;
+    chat.theme = "default";
 
     document.getElementById("chatInput").value = "";
     autosizeChatInput();
@@ -300,15 +331,23 @@ async function openChat(username) {
         chat.open.messages = data.messages;
         chat.open.hasMore = data.has_more;
         chat.open.canMessage = data.can_message;
+        chat.open.blocked = !!data.blocked;
+        chat.open.blockedByMe = !!data.blocked_by_me;
         chat.open.seenUpTo = data.seen_up_to;
+        chat.open.theme = data.theme || "default";
+        chat.open.otherTyping = !!data.other_typing;
+        chat.theme = chat.open.theme;
         chat.open.lastId = data.messages.length
             ? data.messages[data.messages.length - 1].id : 0;
         chat.open.loading = false;
 
         renderChat();
+        applyChatTheme(chat.theme);
+        const themeSelect = document.getElementById("chatTheme");
+        if (themeSelect) themeSelect.value = chat.theme;
         scrollChatToBottom(true);
 
-                chat.pollTimer = setInterval(() => {
+        chat.pollTimer = setInterval(() => {
             if (!document.hidden) pollChat();
         }, 3000);
 
@@ -328,7 +367,10 @@ function closeChat() {
 
     clearInterval(chat.pollTimer);
     chat.pollTimer = null;
+    stopTypingSignal();
+    discardVoiceRecording();
     chat.open = null;
+    chat.replyTo = null;
 
     clearPendingImage();
 
@@ -351,41 +393,72 @@ function dayLabel(iso) {
 }
 
 function messageNode(m) {
-
     const row = el("div", "msg-row " + (m.mine ? "mine" : "theirs"));
     row.dataset.id = m.id;
-
     const bubble = el("div", "msg-bubble" + (m.image_url ? " has-image" : ""));
 
+    if (m.reply_to) {
+        const quote = el("div", "msg-reply-quote", (m.reply_to.mine ? "You: " : "Reply: ") + m.reply_to.text);
+        quote.title = "Jump to replied message";
+        quote.addEventListener("click", () => {
+            const target = document.querySelector('#chatMessages .msg-row[data-id="' + m.reply_to.id + '"]');
+            if (target) { target.scrollIntoView({ behavior: "smooth", block: "center" }); target.classList.add("msg-highlight"); setTimeout(() => target.classList.remove("msg-highlight"), 1200); }
+        });
+        bubble.append(quote);
+    }
+
     if (m.image_url) {
-                const link = el("button", "msg-image-link");
+        const link = el("button", "msg-image-link");
         link.type = "button";
         link.setAttribute("aria-label", "Open photo");
-
-
         const img = el("img", "msg-image");
         img.src = API_URL + m.image_url;
         img.alt = "Image message";
         img.loading = "lazy";
-                img.addEventListener("load", () => scrollChatToBottom(false));
-
-        // opens inside PlayHub, with the other photos of this chat a swipe away
+        img.addEventListener("load", () => scrollChatToBottom(false));
         link.addEventListener("click", () => {
             const all = Array.from(document.querySelectorAll("#chatMessages .msg-image"));
             openImageViewer(all.map(i => ({ url: i.src, caption: "" })), Math.max(0, all.indexOf(img)));
         });
-
-        link.append(img);
-        bubble.append(link);
+        link.append(img); bubble.append(link);
     }
 
+    if (m.audio_url) {
+        const audio = document.createElement("audio");
+        audio.className = "msg-audio";
+        audio.controls = true;
+        audio.preload = "metadata";
+        audio.src = API_URL + m.audio_url;
+        audio.setAttribute("aria-label", "Voice note");
+        bubble.append(el("div", "voice-note-label", "🎙 Voice note"), audio);
+    }
+
+    const stickers = { heart: "💖", laugh: "😂", wow: "😮", sad: "🥺", celebrate: "🎉", thumbs_up: "👍", fire: "🔥", love: "🥰" };
+    if (m.sticker && stickers[m.sticker]) bubble.append(el("div", "msg-sticker", stickers[m.sticker]));
     if (m.text) bubble.append(el("div", "msg-text", m.text));
 
-    bubble.append(el("div", "msg-time",
-        new Date(m.created_at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })));
-
+    const timeText = new Date(m.created_at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+    bubble.append(el("div", "msg-time", timeText + (m.edited ? " · edited" : "")));
     row.append(bubble);
 
+    if (m.reactions && m.reactions.length) {
+        const reactions = el("div", "msg-reactions");
+        m.reactions.forEach(r => {
+            const b = el("button", "msg-reaction" + (r.mine ? " selected" : ""), r.emoji + " " + r.count);
+            b.type = "button"; b.setAttribute("aria-label", "Toggle " + r.emoji + " reaction");
+            b.addEventListener("click", () => toggleMessageReaction(m.id, r.emoji));
+            reactions.append(b);
+        });
+        row.append(reactions);
+    }
+
+    const actions = el("div", "msg-actions");
+    const reply = el("button", null, "Reply"); reply.type = "button"; reply.addEventListener("click", () => setReplyTarget(m)); actions.append(reply);
+    const react = el("button", null, "React"); react.type = "button"; react.addEventListener("click", () => showReactionPicker(m.id)); actions.append(react);
+    if (m.mine && m.type === "TEXT") {
+        const edit = el("button", null, "Edit"); edit.type = "button"; edit.addEventListener("click", () => editChatMessage(m)); actions.append(edit);
+    }
+    row.append(actions);
     return row;
 }
 
@@ -395,6 +468,10 @@ function renderChat() {
     if (!c) return;
 
     document.getElementById("chatName").textContent = c.user.full_name || "@" + c.user.username;
+    const blockAction = document.getElementById("chatBlockAction");
+    if (blockAction) blockAction.textContent = c.blockedByMe ? "Unblock user" : "Block user";
+    applyChatTheme(c.theme || chat.theme || "default");
+    updateTypingIndicator(!!c.otherTyping);
 
     const status = document.getElementById("chatStatus");
     status.textContent = c.loading ? "" : (c.user.online ? "Online" : "Offline");
@@ -443,6 +520,11 @@ function renderChat() {
 
     document.getElementById("chatComposer").classList.toggle("hidden", locked || !!c.error);
     document.getElementById("chatLocked").classList.toggle("hidden", !locked);
+    if (locked) {
+        document.getElementById("chatLocked").textContent = c.blocked
+            ? (c.blockedByMe ? "You blocked this user. Unblock them from chat options to message again." : "Messaging is unavailable because this user blocked you.")
+            : "You can only message people you are friends with.";
+    }
 }
 
 function updateSeenLabel() {
@@ -530,9 +612,17 @@ async function pollChat() {
 
         chat.open.user = data.other;
         chat.open.canMessage = data.can_message;
+        chat.open.blocked = !!data.blocked;
+        chat.open.blockedByMe = !!data.blocked_by_me;
         chat.open.seenUpTo = data.seen_up_to;
+        chat.open.otherTyping = !!data.other_typing;
+        chat.open.theme = data.theme || chat.open.theme || "default";
+        chat.theme = chat.open.theme;
 
         appendMessages(data.messages);
+        (data.updated_messages || []).forEach(replaceLocalMessage);
+        updateTypingIndicator(chat.open.otherTyping);
+        applyChatTheme(chat.theme);
         updateSeenLabel();
 
         const status = document.getElementById("chatStatus");
@@ -542,6 +632,13 @@ async function pollChat() {
         const locked = !data.can_message;
         document.getElementById("chatComposer").classList.toggle("hidden", locked);
         document.getElementById("chatLocked").classList.toggle("hidden", !locked);
+        if (locked) {
+            document.getElementById("chatLocked").textContent = data.blocked
+                ? (data.blocked_by_me ? "You blocked this user. Unblock them from chat options to message again." : "Messaging is unavailable because this user blocked you.")
+                : "You can only message people you are friends with.";
+        }
+        const blockAction = document.getElementById("chatBlockAction");
+        if (blockAction) blockAction.textContent = data.blocked_by_me ? "Unblock user" : "Block user";
 
     } catch (error) {
         // temporary connection problem: try again on the next tick
@@ -577,6 +674,60 @@ async function loadEarlier() {
     }
 }
 
+
+/* ----------------------- block / report controls ------------------ */
+
+function toggleChatMenu(event) {
+    if (event) event.stopPropagation();
+    const menu = document.getElementById("chatActionsMenu"), toggle = document.getElementById("chatActionsToggle");
+    if (!menu || !toggle) return;
+    const opening = menu.classList.contains("hidden");
+    menu.classList.toggle("hidden", !opening); toggle.setAttribute("aria-expanded", String(opening));
+}
+function closeChatMenu() {
+    const menu = document.getElementById("chatActionsMenu"), toggle = document.getElementById("chatActionsToggle");
+    if (menu) menu.classList.add("hidden"); if (toggle) toggle.setAttribute("aria-expanded", "false");
+}
+document.addEventListener("click", event => {
+    const menu = document.getElementById("chatActionsMenu");
+    if (menu && !menu.classList.contains("hidden") && !event.target.closest(".chat-actions")) closeChatMenu();
+});
+document.addEventListener("keydown", event => { if (event.key === "Escape") closeChatMenu(); });
+
+async function toggleBlockChatUser() {
+    const c = chat.open; if (!c) return; closeChatMenu();
+    const blocking = !c.blockedByMe;
+    const promptText = blocking
+        ? "Block @" + c.user.username + "? They will no longer be able to message you, and your friendship will be removed."
+        : "Unblock @" + c.user.username + "? You can message them again if you are friends.";
+    if (!confirm(promptText)) return;
+    try {
+        const result = await api("/users/" + encodeURIComponent(c.user.username) + "/block", { method: blocking ? "POST" : "DELETE" });
+        showToast(result.message || (blocking ? "User blocked" : "User unblocked"));
+        await openChat(c.user.username); loadConversations(true);
+    } catch (error) { showToast(error.message || "Could not update block status"); }
+}
+function reportChatUser() {
+    if (!chat.open) return; closeChatMenu();
+    document.querySelectorAll('input[name="userReportReason"]').forEach(input => { input.checked = false; });
+    document.getElementById("userReportDetails").value = "";
+    const message = document.getElementById("userReportMessage"); message.classList.add("hidden"); message.textContent = "";
+    document.getElementById("reportUserTitle").textContent = "Report @" + chat.open.user.username;
+    document.getElementById("reportUserModal").classList.remove("hidden");
+}
+async function submitUserReport() {
+    if (!chat.open) return;
+    const reason = document.querySelector('input[name="userReportReason"]:checked')?.value;
+    const details = document.getElementById("userReportDetails").value.trim();
+    const message = document.getElementById("userReportMessage");
+    if (!reason) { message.textContent = "Choose a reason before submitting."; message.classList.remove("hidden"); return; }
+    const submit = document.getElementById("userReportSubmit"); submit.disabled = true;
+    try {
+        const result = await api("/users/" + encodeURIComponent(chat.open.user.username) + "/report", { method: "POST", body: { reason, details } });
+        closeModal("reportUserModal"); showToast(result.message || "Report submitted for review");
+    } catch (error) { message.textContent = error.message || "Could not submit the report."; message.classList.remove("hidden"); }
+    finally { submit.disabled = false; }
+}
 
 /* ------------------------------ sending --------------------------- */
 
@@ -634,55 +785,227 @@ function clearPendingImage() {
 }
 
 async function sendMessage() {
-
     const c = chat.open;
-
     if (!c || chat.sending || !c.canMessage) return;
-
     const input = document.getElementById("chatInput");
     const text = input.value.trim();
     const image = chat.pendingImage;
-
     if (!text && !image) return;
-
     chat.sending = true;
-
     const sendBtn = document.getElementById("chatSend");
     sendBtn.disabled = true;
-
     const username = c.user.username;
-
     try {
-
         let options;
-
         if (image) {
             const form = new FormData();
             form.append("image", image.file);
             if (text) form.append("text", text);
+            if (chat.replyTo) form.append("reply_to_id", String(chat.replyTo.id));
             options = { method: "POST", formData: form };
         } else {
-            options = { method: "POST", body: { text: text } };
+            options = { method: "POST", body: { text: text, reply_to_id: chat.replyTo ? chat.replyTo.id : null } };
         }
-
-        const message = await api(
-            "/conversations/" + encodeURIComponent(username) + "/messages", options
-        );
-
+        const message = await api("/conversations/" + encodeURIComponent(username) + "/messages", options);
         if (chat.open && chat.open.user.username === username) {
-            input.value = "";
-            autosizeChatInput();
-            clearPendingImage();
-            appendMessages([message]);
+            input.value = ""; autosizeChatInput(); clearPendingImage(); clearReplyTarget();
+            stopTypingSignal(); appendMessages([message]);
         }
-
-    } catch (error) {
-        showToast(error.message);      // the typed text stays so nothing is lost
-    }
-
+    } catch (error) { showToast(error.message); }
     chat.sending = false;
     sendBtn.disabled = false;
     input.focus();
+}
+
+const CHAT_STICKERS = [
+    { key: "heart", emoji: "💖", label: "Heart" }, { key: "laugh", emoji: "😂", label: "Laugh" },
+    { key: "wow", emoji: "😮", label: "Wow" }, { key: "sad", emoji: "🥺", label: "Sad" },
+    { key: "celebrate", emoji: "🎉", label: "Celebrate" }, { key: "thumbs_up", emoji: "👍", label: "Thumbs up" },
+    { key: "fire", emoji: "🔥", label: "Fire" }, { key: "love", emoji: "🥰", label: "Love" }
+];
+const CHAT_REACTIONS = ["❤️", "😂", "👍", "😮", "😢", "🔥", "👏"];
+
+function toggleStickerTray() {
+    const tray = document.getElementById("chatStickerTray");
+    if (!tray) return;
+    if (!tray.childElementCount) {
+        CHAT_STICKERS.forEach(sticker => {
+            const b = el("button", "sticker-choice", sticker.emoji);
+            b.type = "button"; b.title = sticker.label; b.setAttribute("aria-label", sticker.label);
+            b.addEventListener("click", () => sendSticker(sticker.key)); tray.append(b);
+        });
+    }
+    chat.stickerTrayOpen = !chat.stickerTrayOpen;
+    tray.classList.toggle("hidden", !chat.stickerTrayOpen);
+}
+
+async function sendSticker(key) {
+    const c = chat.open;
+    if (!c || !c.canMessage || chat.sending) return;
+    chat.sending = true;
+    try {
+        const m = await api("/conversations/" + encodeURIComponent(c.user.username) + "/messages", {
+            method: "POST", body: { sticker: key, reply_to_id: chat.replyTo ? chat.replyTo.id : null }
+        });
+        appendMessages([m]); clearReplyTarget();
+        chat.stickerTrayOpen = false; document.getElementById("chatStickerTray").classList.add("hidden");
+    } catch (error) { showToast(error.message); }
+    finally { chat.sending = false; }
+}
+
+function setReplyTarget(message) {
+    chat.replyTo = { id: message.id, text: message.text || (message.image_url ? "Photo" : message.audio_url ? "Voice note" : message.sticker || "Message") };
+    document.getElementById("chatReplyText").textContent = chat.replyTo.text;
+    document.getElementById("chatReplyPreview").classList.remove("hidden");
+    document.getElementById("chatInput").focus();
+}
+function clearReplyTarget() {
+    chat.replyTo = null;
+    const preview = document.getElementById("chatReplyPreview");
+    if (preview) preview.classList.add("hidden");
+}
+
+async function toggleMessageReaction(messageId, emoji) {
+    if (!chat.open) return;
+    try {
+        const updated = await api("/messages/" + messageId + "/reactions", { method: "POST", body: { emoji: emoji } });
+        replaceLocalMessage(updated);
+    } catch (error) { showToast(error.message); }
+}
+function showReactionPicker(messageId) {
+    const picker = el("div", "msg-reaction-picker");
+    CHAT_REACTIONS.forEach(emoji => {
+        const b = el("button", null, emoji); b.type = "button";
+        b.addEventListener("click", () => { picker.remove(); toggleMessageReaction(messageId, emoji); }); picker.append(b);
+    });
+    const row = document.querySelector('#chatMessages .msg-row[data-id="' + messageId + '"] .msg-actions');
+    if (row) { const old = row.querySelector(".msg-reaction-picker"); if (old) old.remove(); row.append(picker); }
+}
+function replaceLocalMessage(updated) {
+    if (!chat.open) return;
+    const idx = chat.open.messages.findIndex(m => m.id === updated.id);
+    if (idx >= 0) chat.open.messages[idx] = updated;
+    const old = document.querySelector('#chatMessages .msg-row[data-id="' + updated.id + '"]');
+    if (old) old.replaceWith(messageNode(updated));
+    updateSeenLabel();
+}
+async function editChatMessage(message) {
+    const edited = prompt("Edit your message", message.text || "");
+    if (edited === null || edited.trim() === "" || edited.trim() === message.text) return;
+    try {
+        const updated = await api("/messages/" + message.id, { method: "PATCH", body: { text: edited.trim() } });
+        replaceLocalMessage(updated);
+    } catch (error) { showToast(error.message); }
+}
+
+function onChatInputChanged() {
+    autosizeChatInput();
+    const value = document.getElementById("chatInput").value.trim();
+    if (value) sendTypingSignal(true); else stopTypingSignal();
+}
+function sendTypingSignal(typing) {
+    const c = chat.open;
+    if (!c || !c.canMessage) return;
+    if (chat.typingTimer) clearTimeout(chat.typingTimer);
+    const now = Date.now();
+    if (typing && now - chat.lastTypingSent < 1200) {
+        chat.typingTimer = setTimeout(() => sendTypingSignal(true), 1200 - (now - chat.lastTypingSent));
+        return;
+    }
+    chat.lastTypingSent = now;
+    api("/conversations/" + encodeURIComponent(c.user.username) + "/typing", { method: "POST", body: { typing: typing } }).catch(() => {});
+    if (typing) chat.typingTimer = setTimeout(() => stopTypingSignal(), 3500);
+}
+function stopTypingSignal() {
+    if (chat.typingTimer) clearTimeout(chat.typingTimer);
+    chat.typingTimer = null;
+    const c = chat.open;
+    if (c && c.user && c.user.username) {
+        api("/conversations/" + encodeURIComponent(c.user.username) + "/typing", { method: "POST", body: { typing: false } }).catch(() => {});
+    }
+}
+function updateTypingIndicator(typing) {
+    const node = document.getElementById("chatTyping");
+    if (!node) return;
+    node.textContent = (chat.open && chat.open.user.full_name ? chat.open.user.full_name : "Your friend") + " is typing…";
+    node.classList.toggle("hidden", !typing);
+}
+
+async function changeChatTheme(theme) {
+    if (!chat.open) return;
+    try {
+        const data = await api("/conversations/" + encodeURIComponent(chat.open.user.username) + "/preferences", { method: "PUT", body: { theme: theme } });
+        chat.theme = data.theme; chat.open.theme = data.theme; applyChatTheme(data.theme);
+    } catch (error) { showToast(error.message); }
+}
+function applyChatTheme(theme) {
+    const panel = document.querySelector(".chat-panel");
+    if (!panel) return;
+    ["default", "ocean", "sunset", "forest", "lavender"].forEach(t => panel.classList.remove("theme-" + t));
+    panel.classList.add("theme-" + (theme || "default"));
+    const select = document.getElementById("chatTheme");
+    if (select && select.value !== (theme || "default")) select.value = theme || "default";
+}
+
+function discardVoiceRecording() {
+    if (chat.mediaRecorder) {
+        chat.discardVoiceNote = true;
+        if (chat.mediaRecorder.state !== "inactive") chat.mediaRecorder.stop();
+    }
+    chat.voiceChunks = [];
+    chat.recording = false;
+    chat.mediaRecorder = null;
+    const btn = document.getElementById("chatVoiceBtn");
+    if (btn) { btn.textContent = "🎙"; btn.classList.remove("recording"); btn.title = "Record voice note"; }
+}
+
+async function toggleVoiceRecording() {
+    if (chat.recording && chat.mediaRecorder) {
+        chat.mediaRecorder.stop();
+        const btn = document.getElementById("chatVoiceBtn");
+        btn.textContent = "🎙"; btn.classList.remove("recording");
+        return;
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+        showToast("Voice recording is not supported by this browser. Try a recent browser over HTTPS."); return;
+    }
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const preferred = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"];
+        const mimeType = preferred.find(type => MediaRecorder.isTypeSupported(type));
+        const recorder = mimeType ? new MediaRecorder(stream, { mimeType: mimeType }) : new MediaRecorder(stream);
+        chat.mediaRecorder = recorder; chat.voiceChunks = []; chat.recording = true;
+        recorder.ondataavailable = event => { if (event.data && event.data.size) chat.voiceChunks.push(event.data); };
+        recorder.onerror = () => showToast("Voice note recording failed.");
+        recorder.onstop = async () => {
+            stream.getTracks().forEach(track => track.stop());
+            chat.recording = false; chat.mediaRecorder = null;
+            const btn = document.getElementById("chatVoiceBtn");
+            if (btn) { btn.textContent = "🎙"; btn.classList.remove("recording"); btn.title = "Record voice note"; }
+            const blob = new Blob(chat.voiceChunks, { type: recorder.mimeType || "audio/webm" });
+            chat.voiceChunks = [];
+            if (chat.discardVoiceNote) { chat.discardVoiceNote = false; return; }
+            if (!blob.size) return;
+            if (blob.size > 5 * 1024 * 1024) { showToast("Voice note exceeds the 5 MB limit. Please record a shorter note."); return; }
+            await sendVoiceNote(blob);
+        };
+        recorder.start();
+        const btn = document.getElementById("chatVoiceBtn");
+        btn.textContent = "■"; btn.classList.add("recording"); btn.title = "Stop and send voice note";
+        showToast("Recording voice note. Press the stop button to send.");
+    } catch (error) { showToast("Microphone access was denied or is unavailable."); }
+}
+async function sendVoiceNote(blob) {
+    const c = chat.open;
+    if (!c || !c.canMessage) return;
+    const form = new FormData();
+    const ext = blob.type.includes("ogg") ? "ogg" : blob.type.includes("mp4") ? "mp4" : "webm";
+    form.append("audio", blob, "voice-note." + ext);
+    if (chat.replyTo) form.append("reply_to_id", String(chat.replyTo.id));
+    try {
+        const m = await api("/conversations/" + encodeURIComponent(c.user.username) + "/messages", { method: "POST", formData: form });
+        appendMessages([m]); clearReplyTarget();
+    } catch (error) { showToast(error.message); }
 }
 
 
