@@ -3896,3 +3896,100 @@ body.dark .auth-card { box-shadow: 0 24px 80px rgba(0,0,0,.25), inset 0 1px 0 rg
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+
+/* =====================================================================
+   PLAYHUB polish layer: WhatsApp-inspired doodle chat canvas + refined UI.
+   Additive overrides only; existing message and game behaviour is unchanged.
+   ===================================================================== */
+.chat-panel {
+    overflow: hidden;
+    box-shadow: 0 18px 60px rgba(0,0,0,.12);
+}
+.chat-header {
+    position: relative;
+    z-index: 1;
+    min-height: 68px;
+    background: color-mix(in srgb, var(--card) 94%, var(--primary));
+    box-shadow: 0 2px 12px rgba(0,0,0,.045);
+}
+/* Theme-aware WhatsApp-inspired doodle canvas: adapts to light and dark mode. */
+.chat-messages {
+    position: relative;
+    isolation: isolate;
+    background-color: #f5f6f8;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180' viewBox='0 0 180 180'%3E%3Cg fill='none' stroke='%236b6878' stroke-opacity='.14' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 24c8-8 19 2 11 10-5 5-11 1-11-4m7-13v4m-7 7h-4'/%3E%3Cpath d='M90 20l4 9 10 1-7 7 2 10-9-5-9 5 2-10-7-7 10-1z'/%3E%3Ccircle cx='143' cy='37' r='10'/%3E%3Cpath d='M138 35h.1m9 0h.1m-9 5q5 5 9 0'/%3E%3Cpath d='M28 91c-10-9-20 4-9 12l9 8 9-8c11-8 1-21-9-12z'/%3E%3Cpath d='M98 83q-8-9-16 0t8 17l8 5 8-5q16-12 3-20-6-3-11 3z'/%3E%3Cpath d='M139 103l15-10m-10 16 12-8m-8 13 8-5'/%3E%3Cpath d='M24 148l8-8 8 8-8 8zM91 142q9-12 18 0t-9 15q-18-3-9-15z'/%3E%3Ccircle cx='145' cy='151' r='12'/%3E%3Cpath d='M141 149l3 3 6-7'/%3E%3C/g%3E%3C/svg%3E");
+    background-repeat: repeat;
+    background-size: 180px 180px;
+    scrollbar-color: color-mix(in srgb, var(--muted) 45%, transparent) transparent;
+}
+body.dark .chat-messages {
+    background-color: #15171c;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180' viewBox='0 0 180 180'%3E%3Cg fill='none' stroke='%23c4c0df' stroke-opacity='.12' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 24c8-8 19 2 11 10-5 5-11 1-11-4m7-13v4m-7 7h-4'/%3E%3Cpath d='M90 20l4 9 10 1-7 7 2 10-9-5-9 5 2-10-7-7 10-1z'/%3E%3Ccircle cx='143' cy='37' r='10'/%3E%3Cpath d='M138 35h.1m9 0h.1m-9 5q5 5 9 0'/%3E%3Cpath d='M28 91c-10-9-20 4-9 12l9 8 9-8c11-8 1-21-9-12z'/%3E%3Cpath d='M98 83q-8-9-16 0t8 17l8 5 8-5q16-12 3-20-6-3-11 3z'/%3E%3Cpath d='M139 103l15-10m-10 16 12-8m-8 13 8-5'/%3E%3Cpath d='M24 148l8-8 8 8-8 8zM91 142q9-12 18 0t-9 15q-18-3-9-15z'/%3E%3Ccircle cx='145' cy='151' r='12'/%3E%3Cpath d='M141 149l3 3 6-7'/%3E%3C/g%3E%3C/svg%3E");
+}
+.chat-messages::before {
+    content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+    background: linear-gradient(180deg, rgba(255,255,255,.035), rgba(0,0,0,.015));
+}
+body.dark .chat-messages::before { background: linear-gradient(180deg, rgba(255,255,255,.012), rgba(0,0,0,.08)); }
+.msg-row { max-width: min(80%, 620px); animation: playhub-message-arrive .18s ease-out both; }
+.msg-bubble {
+    position: relative;
+    box-shadow: 0 1px 1px rgba(0,0,0,.07);
+    padding: 9px 12px 7px;
+    border-radius: 14px;
+    overflow-wrap: anywhere;
+}
+.msg-row.mine .msg-bubble { background: #d9fdd3; color: #17251e; border: 0; border-bottom-right-radius: 4px; }
+.msg-row.theirs .msg-bubble { background: #fff; color: #202124; border: 0; border-bottom-left-radius: 4px; }
+.msg-row.mine .msg-time { color: #52735b; }
+.msg-row.theirs .msg-time { color: #7b7b7b; }
+.msg-actions { opacity: .72; transition: opacity .16s ease; }
+.msg-row:hover .msg-actions, .msg-row:focus-within .msg-actions { opacity: 1; }
+.chat-composer {
+    position: relative;
+    z-index: 1;
+    gap: 9px;
+    padding: 12px 14px calc(12px + env(safe-area-inset-bottom, 0px));
+    background: var(--card);
+    box-shadow: 0 -3px 18px rgba(0,0,0,.045);
+}
+.chat-composer textarea {
+    min-height: 42px;
+    border-radius: 22px;
+    background: color-mix(in srgb, var(--bg) 88%, var(--card));
+    border-color: color-mix(in srgb, var(--border) 70%, transparent);
+}
+.chat-send { box-shadow: 0 3px 8px color-mix(in srgb, var(--primary) 28%, transparent); transition: transform .16s ease, box-shadow .16s ease; }
+.chat-send:hover { transform: translateY(-1px); box-shadow: 0 5px 12px color-mix(in srgb, var(--primary) 30%, transparent); }
+.chat-panel.theme-ocean .chat-messages { background-color: #eaf6ff; }
+.chat-panel.theme-sunset .chat-messages { background-color: #fff0e9; }
+.chat-panel.theme-forest .chat-messages { background-color: #edf6ed; }
+.chat-panel.theme-lavender .chat-messages { background-color: #f4efff; }
+/* Dark mode keeps the selected theme's identity without a bright mismatched wallpaper. */
+body.dark .chat-panel.theme-ocean .chat-messages { background-color: #111e29; }
+body.dark .chat-panel.theme-sunset .chat-messages { background-color: #251916; }
+body.dark .chat-panel.theme-forest .chat-messages { background-color: #14221a; }
+body.dark .chat-panel.theme-lavender .chat-messages { background-color: #1d1929; }
+@keyframes playhub-message-arrive { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Pool table presentation: a crisp cabinet, more tactile felt, and polished cue. */
+#poolStage { padding: 8px 0 14px; }
+#poolCanvas {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    border-radius: 18px;
+    filter: drop-shadow(0 12px 18px rgba(0,0,0,.24));
+    touch-action: none;
+}
+@media (max-width: 650px) {
+    .chat-messages { padding: 14px 10px; background-size: 150px 150px; }
+    .msg-row { max-width: 88%; }
+    .chat-header { min-height: 60px; }
+    .chat-composer { gap: 5px; padding-left: 8px; padding-right: 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .msg-row { animation: none !important; }
+    .chat-send, .msg-actions { transition: none !important; }
+}

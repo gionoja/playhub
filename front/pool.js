@@ -69,7 +69,8 @@ const pool = {
     ctx: null,
     scale: 1,
     dpr: 1,
-    balls: [],                  // what is drawn: {id, x, y, pocketed, scale}
+    balls: [],                  // what is drawn: {id, x, y, pocketed, scale, rotation}
+    ballRotation: Array(16).fill(0), // visual rolling rotation derived from replay movement
     aim: 0,
     power: 0.6,
     mode: "aim",
@@ -1291,13 +1292,24 @@ function poolStepAnimation(now) {
 
     const frame = poolFrameAt(a.shot, t);
 
-    pool.balls = frame.balls.map((p, id) => ({
-        id: id,
-        x: p ? p.x : -999,
-        y: p ? p.y : -999,
-        pocketed: !p || frame.scale[id] <= 0,
-        scale: frame.scale[id]
-    }));
+    const previous = pool.balls;
+    pool.balls = frame.balls.map((p, id) => {
+        const old = previous.find(b => b.id === id);
+        if (p && old && old.x > -900 && old.y > -900) {
+            // A rolling sphere turns by distance travelled / radius. This is
+            // visual-only; the server remains authoritative for every shot.
+            const dx = p.x - old.x, dy = p.y - old.y;
+            pool.ballRotation[id] = (pool.ballRotation[id] || 0) + Math.hypot(dx, dy) / POOL.R;
+        }
+        return {
+            id: id,
+            x: p ? p.x : -999,
+            y: p ? p.y : -999,
+            pocketed: !p || frame.scale[id] <= 0,
+            scale: frame.scale[id],
+            rotation: pool.ballRotation[id] || 0
+        };
+    });
 
     if (t >= a.shot.seconds + 0.45) {
         pool.anim = null;
@@ -1332,25 +1344,56 @@ function drawPoolTable(ctx) {
 
     const TW = POOL.W + 2 * POOL.RAIL, TH = POOL.H + 2 * POOL.RAIL, RL = POOL.RAIL;
 
-    // wooden frame
+    // Premium timber cabinet: layered bevels, warm grain, and a soft edge highlight.
+    ctx.save();
+    ctx.shadowColor = "rgba(0,0,0,.42)";
+    ctx.shadowBlur = 16;
+    ctx.shadowOffsetY = 8;
     const wood = ctx.createLinearGradient(0, 0, 0, TH);
-    wood.addColorStop(0, "#7a4b2a");
-    wood.addColorStop(0.5, "#5b3a22");
-    wood.addColorStop(1, "#46291a");
+    wood.addColorStop(0, "#b17a49");
+    wood.addColorStop(0.12, "#82502d");
+    wood.addColorStop(0.48, "#5d3822");
+    wood.addColorStop(0.86, "#422719");
+    wood.addColorStop(1, "#2e1b13");
     ctx.fillStyle = wood;
     poolRoundRect(ctx, 0, 0, TW, TH, 26);
     ctx.fill();
+    ctx.restore();
 
-    // cushions and felt
-    ctx.fillStyle = "#0a4f31";
+    // Inlaid trim and fine timber grain make the rails read as real wood.
+    ctx.strokeStyle = "rgba(255,220,160,.34)";
+    ctx.lineWidth = 2;
+    poolRoundRect(ctx, 5, 5, TW - 10, TH - 10, 22);
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(25,12,6,.20)";
+    ctx.lineWidth = 1;
+    for (let gy = 13; gy < TH - 12; gy += 13) {
+        ctx.beginPath(); ctx.moveTo(15, gy); ctx.bezierCurveTo(TW * .28, gy - 3, TW * .65, gy + 3, TW - 15, gy); ctx.stroke();
+    }
+
+    // Cushions have a raised bevel; the dark inner rail gives the pockets depth.
+    const cushion = ctx.createLinearGradient(0, RL - 16, 0, RL + 14);
+    cushion.addColorStop(0, "#176342");
+    cushion.addColorStop(.45, "#0c4a30");
+    cushion.addColorStop(1, "#073321");
+    ctx.fillStyle = cushion;
     poolRoundRect(ctx, RL - 16, RL - 16, POOL.W + 32, POOL.H + 32, 12);
     ctx.fill();
 
-    const felt = ctx.createRadialGradient(TW / 2, TH / 2, 60, TW / 2, TH / 2, TW * 0.6);
-    felt.addColorStop(0, "#1b8a56");
-    felt.addColorStop(1, "#0d6040");
+    const felt = ctx.createRadialGradient(TW / 2, TH / 2, 60, TW / 2, TH / 2, TW * 0.65);
+    felt.addColorStop(0, "#23885a");
+    felt.addColorStop(.68, "#116b45");
+    felt.addColorStop(1, "#08462f");
     ctx.fillStyle = felt;
     ctx.fillRect(RL, RL, POOL.W, POOL.H);
+    // Very subtle cloth nap texture, deliberately low contrast so play stays clear.
+    ctx.save();
+    ctx.beginPath(); ctx.rect(RL, RL, POOL.W, POOL.H); ctx.clip();
+    for (let fy = RL + 4; fy < RL + POOL.H; fy += 7) {
+        ctx.strokeStyle = (Math.floor(fy / 7) % 2) ? "rgba(255,255,255,.018)" : "rgba(0,0,0,.025)";
+        ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(RL, fy); ctx.lineTo(RL + POOL.W, fy); ctx.stroke();
+    }
+    ctx.restore();
 
     // markings
     ctx.strokeStyle = "rgba(255,255,255,0.12)";
@@ -1381,15 +1424,20 @@ function drawPoolTable(ctx) {
     POOL_POCKETS.forEach(([px, py, pr], i) => {
         const cx = RL + px + (px === 0 ? -6 : px === POOL.W ? 6 : 0);
         const cy = RL + py + (py === 0 ? -6 : py === POOL.H ? 6 : 0);
-        const g = ctx.createRadialGradient(cx, cy, 2, cx, cy, pr);
-        g.addColorStop(0, "#000");
-        g.addColorStop(1, "#141414");
+            // Pocket leather throat and soft inner lip.
+        const g = ctx.createRadialGradient(cx - 3, cy - 4, 1, cx, cy, pr);
+        g.addColorStop(0, "#020403");
+        g.addColorStop(.68, "#080b09");
+        g.addColorStop(.88, "#20251f");
+        g.addColorStop(1, "#070907");
         ctx.fillStyle = g;
         ctx.beginPath(); ctx.arc(cx, cy, pr * (i < 4 ? 0.95 : 0.9), 0, 7); ctx.fill();
+        ctx.strokeStyle = "rgba(225,195,130,.28)"; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(cx, cy, pr * .94, .15, Math.PI * 1.85); ctx.stroke();
     });
 }
 
-function drawPoolBall(ctx, id, x, y, scale, alpha) {
+function drawPoolBall(ctx, id, x, y, scale, alpha, rotation) {
 
     const r = POOL.R * scale;
 
@@ -1398,6 +1446,7 @@ function drawPoolBall(ctx, id, x, y, scale, alpha) {
     ctx.save();
     ctx.globalAlpha = alpha === undefined ? 1 : alpha;
     ctx.translate(x, y);
+    if (rotation) ctx.rotate(rotation);
 
     // shadow
     ctx.fillStyle = "rgba(0,0,0,0.28)";
@@ -1511,22 +1560,39 @@ function drawPoolCue(ctx, cue, now) {
     ctx.rotate(pool.aim);
 
     const start = -(POOL.R + 4 + pull);
-    const grad = ctx.createLinearGradient(start - 420, 0, start, 0);
-    grad.addColorStop(0, "#2b1a10");
-    grad.addColorStop(0.15, "#8a5a33");
-    grad.addColorStop(1, "#e8d3a2");
+    const tip = start;
+    const butt = start - 420;
 
+    // Cast a small, soft shadow beneath the tapered cue for depth.
+    ctx.save();
+    ctx.translate(0, 2.2);
+    ctx.fillStyle = "rgba(0,0,0,.28)";
+    ctx.beginPath(); ctx.moveTo(tip, -2.8); ctx.lineTo(butt, -6.1); ctx.lineTo(butt, 6.1); ctx.lineTo(tip, 2.8); ctx.closePath(); ctx.fill();
+    ctx.restore();
+
+    // Tapered maple shaft with a polished highlight and darker underside.
+    const grad = ctx.createLinearGradient(0, -6, 0, 6);
+    grad.addColorStop(0, "#6a3d20");
+    grad.addColorStop(.22, "#d7b27b");
+    grad.addColorStop(.48, "#f4dfad");
+    grad.addColorStop(.72, "#b17a43");
+    grad.addColorStop(1, "#553019");
     ctx.fillStyle = grad;
     ctx.beginPath();
-    ctx.moveTo(start, -2.2);
-    ctx.lineTo(start - 420, -5.5);
-    ctx.lineTo(start - 420, 5.5);
-    ctx.lineTo(start, 2.2);
-    ctx.closePath();
-    ctx.fill();
+    ctx.moveTo(tip, -2.0); ctx.lineTo(butt, -5.5); ctx.lineTo(butt, 5.5); ctx.lineTo(tip, 2.0);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = "rgba(255,244,205,.7)"; ctx.lineWidth = .8;
+    ctx.beginPath(); ctx.moveTo(tip + 2, -1.1); ctx.lineTo(butt + 5, -4.1); ctx.stroke();
 
-    ctx.fillStyle = "#6fb7d6";
-    ctx.fillRect(start - 5, -2.2, 5, 4.4);
+    // Blue chalked tip, ivory ferrule, and subtle dark butt cap.
+    ctx.fillStyle = "#d9d0b7"; ctx.fillRect(tip - 5, -2.2, 4, 4.4);
+    ctx.fillStyle = "#4e9ec7"; ctx.fillRect(tip - 1.5, -1.8, 2, 3.6);
+    ctx.fillStyle = "#3a2115"; ctx.fillRect(butt - 2, -5.4, 4, 10.8);
+    ctx.strokeStyle = "rgba(240,215,170,.65)"; ctx.lineWidth = 1;
+    for (let band = 0; band < 3; band++) {
+        const bx = butt + 4 + band * 3;
+        ctx.beginPath(); ctx.moveTo(bx, -5.2 + (band * .035)); ctx.lineTo(bx, 5.2 - (band * .035)); ctx.stroke();
+    }
     ctx.restore();
 }
 
@@ -1554,7 +1620,7 @@ function drawPool(now) {
         if (b.id === 0 && placing) return;
         if (b.x < -900) return;
 
-        drawPoolBall(ctx, b.id, b.x, b.y, b.scale === undefined ? 1 : b.scale);
+        drawPoolBall(ctx, b.id, b.x, b.y, b.scale === undefined ? 1 : b.scale, 1, b.rotation || 0);
     });
 
     const myTurn = v && v.status === "active" && v.your_turn && !pool.anim;

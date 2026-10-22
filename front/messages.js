@@ -11,6 +11,7 @@ const chat = {
     unreadTimer: null,
     open: null,         // { user, messages, lastId, seenUpTo, hasMore, canMessage }
     pollTimer: null,
+    pollInFlight: false,
     sending: false,
     pendingImage: null,  // { file, previewUrl }
     replyTo: null,
@@ -65,10 +66,11 @@ function onMessagingOpened() {
 function onMessagingClosed() {
 
     clearInterval(chat.unreadTimer);
-    clearInterval(chat.pollTimer);
+    clearTimeout(chat.pollTimer);
 
     chat.unreadTimer = null;
     chat.pollTimer = null;
+    chat.pollInFlight = false;
     stopTypingSignal();
     chat.list = [];
     chat.open = null;
@@ -289,7 +291,9 @@ async function openChat(username) {
     closeModal("notificationModal");
     social.openProfile = null;
 
-    clearInterval(chat.pollTimer);
+    clearTimeout(chat.pollTimer);
+    chat.pollTimer = null;
+    chat.pollInFlight = false;
     stopTypingSignal();
     discardVoiceRecording();
     clearPendingImage();
@@ -347,9 +351,10 @@ async function openChat(username) {
         if (themeSelect) themeSelect.value = chat.theme;
         scrollChatToBottom(true);
 
-        chat.pollTimer = setInterval(() => {
-            if (!document.hidden) pollChat();
-        }, 3000);
+        // Poll sequentially rather than on a fixed interval. This prevents
+        // overlapping requests from repainting the conversation while the
+        // user is typing or scrolling.
+        scheduleChatPoll();
 
         fetchUnread();
 
@@ -365,8 +370,9 @@ async function openChat(username) {
 
 function closeChat() {
 
-    clearInterval(chat.pollTimer);
+    clearTimeout(chat.pollTimer);
     chat.pollTimer = null;
+    chat.pollInFlight = false;
     stopTypingSignal();
     discardVoiceRecording();
     chat.open = null;
@@ -531,17 +537,21 @@ function updateSeenLabel() {
 
     const c = chat.open;
     const box = document.getElementById("chatMessages");
+    if (!box) return;
 
-    box.querySelectorAll(".seen-label").forEach(n => n.remove());
+    const mine = c ? c.messages.filter(m => m.mine) : [];
+    const last = mine.length ? mine[mine.length - 1] : null;
+    const shouldShow = !!(last && last.id <= c.seenUpTo);
+    const existing = box.querySelector(".seen-label");
+    const target = shouldShow
+        ? box.querySelector('.msg-row[data-id="' + last.id + '"]')
+        : null;
 
-    const mine = c.messages.filter(m => m.mine);
-    if (!mine.length) return;
-
-    const last = mine[mine.length - 1];
-
-    if (last.id <= c.seenUpTo) {
-        const row = box.querySelector('.msg-row[data-id="' + last.id + '"]');
-        if (row) row.append(el("div", "seen-label", "Seen"));
+    // Keep the existing label in place when nothing changed. Removing and
+    // recreating it on every poll can cause tiny layout shifts/flicker.
+    if (existing && (!target || existing.parentElement !== target)) existing.remove();
+    if (target && !target.querySelector(":scope > .seen-label")) {
+        target.append(el("div", "seen-label", "Seen"));
     }
 }
 
@@ -595,10 +605,27 @@ function appendMessages(list) {
     scrollChatToBottom(nearBottom || fresh.some(m => m.mine));
 }
 
+function scheduleChatPoll() {
+    clearTimeout(chat.pollTimer);
+    chat.pollTimer = null;
+    if (!chat.open) return;
+    chat.pollTimer = setTimeout(() => {
+        if (document.hidden) {
+            scheduleChatPoll();
+            return;
+        }
+        pollChat();
+    }, 5000);
+}
+
 async function pollChat() {
 
     const c = chat.open;
-    if (!c || c.loading || c.error) return;
+    if (!c || c.loading || c.error || chat.pollInFlight) {
+        scheduleChatPoll();
+        return;
+    }
+    chat.pollInFlight = true;
 
     const username = c.user.username;
 
@@ -641,7 +668,10 @@ async function pollChat() {
         if (blockAction) blockAction.textContent = data.blocked_by_me ? "Unblock user" : "Block user";
 
     } catch (error) {
-        // temporary connection problem: try again on the next tick
+        // temporary connection problem: try again on the next poll
+    } finally {
+        chat.pollInFlight = false;
+        scheduleChatPoll();
     }
 }
 
@@ -881,12 +911,43 @@ function showReactionPicker(messageId) {
     const row = document.querySelector('#chatMessages .msg-row[data-id="' + messageId + '"] .msg-actions');
     if (row) { const old = row.querySelector(".msg-reaction-picker"); if (old) old.remove(); row.append(picker); }
 }
+function messageVisualSignature(m) {
+    // Ignore server-only metadata and rotating signed media URLs. Polling often
+    // returns the same visible message with updated delivery/read information.
+    return JSON.stringify({
+        mine: !!m.mine,
+        text: m.text || "",
+        image: (m.image_url || "").split("?")[0],
+        audio: (m.audio_url || "").split("?")[0],
+        sticker: m.sticker || "",
+        created_at: m.created_at || "",
+        edited: !!m.edited,
+        reply: m.reply_to ? { id: m.reply_to.id, mine: !!m.reply_to.mine, text: m.reply_to.text || "" } : null,
+        reactions: (m.reactions || []).map(r => ({ emoji: r.emoji, count: r.count, mine: !!r.mine }))
+    });
+}
+
 function replaceLocalMessage(updated) {
     if (!chat.open) return;
     const idx = chat.open.messages.findIndex(m => m.id === updated.id);
+    const previous = idx >= 0 ? chat.open.messages[idx] : null;
     if (idx >= 0) chat.open.messages[idx] = updated;
+
     const old = document.querySelector('#chatMessages .msg-row[data-id="' + updated.id + '"]');
-    if (old) old.replaceWith(messageNode(updated));
+    // Keep the existing row and its media elements when visible content has not
+    // changed. Rebuilding audio rows on every poll re-fetches voice notes and
+    // can make the chat list shift slightly.
+    if (old && previous && messageVisualSignature(previous) === messageVisualSignature(updated)) {
+        updateSeenLabel();
+        return;
+    }
+    if (old) {
+        const oldAudio = old.querySelector("audio.msg-audio");
+        const replacement = messageNode(updated);
+        const newAudio = replacement.querySelector("audio.msg-audio");
+        if (oldAudio && newAudio) newAudio.replaceWith(oldAudio);
+        old.replaceWith(replacement);
+    }
     updateSeenLabel();
 }
 async function editChatMessage(message) {
@@ -940,11 +1001,21 @@ async function changeChatTheme(theme) {
 }
 function applyChatTheme(theme) {
     const panel = document.querySelector(".chat-panel");
-    if (!panel) return;
-    ["default", "ocean", "sunset", "forest", "lavender"].forEach(t => panel.classList.remove("theme-" + t));
-    panel.classList.add("theme-" + (theme || "default"));
+    const selectedTheme = theme || "default";
+    if (panel) {
+        // Avoid removing/re-adding the active theme class on every poll.
+        // Some theme styles transition, which can look like the chat is refreshing.
+        const currentThemeClass = Array.from(panel.classList).find(name => name.startsWith("theme-"));
+        const desiredThemeClass = "theme-" + selectedTheme;
+        if (currentThemeClass !== desiredThemeClass) {
+            ["default", "ocean", "sunset", "forest", "lavender"].forEach(t => {
+                panel.classList.remove("theme-" + t);
+            });
+            panel.classList.add(desiredThemeClass);
+        }
+    }
     const select = document.getElementById("chatTheme");
-    if (select && select.value !== (theme || "default")) select.value = theme || "default";
+    if (select && select.value !== selectedTheme) select.value = selectedTheme;
 }
 
 function discardVoiceRecording() {
