@@ -102,7 +102,7 @@ async function login() {
 
         console.error(error);
 
-        showToast("Unable to connect to PLAYHUB server");
+        showToast("Unable to connect to Vynqo server");
     }
 }
 
@@ -294,48 +294,45 @@ function showScreen(screenName) {
 
 /* ================= DARK MODE ================= */
 
-function toggleDarkMode() {
+function applyThemePreference(dark) {
+    document.body.classList.toggle("dark", Boolean(dark));
 
-    document.body.classList.toggle("dark");
+    const toggle = document.getElementById("darkModeToggle");
+    if (toggle) toggle.checked = Boolean(dark);
 
-    const dark =
-        document.body.classList.contains("dark");
-
-    document.getElementById("darkModeToggle").checked = dark;
-
-    document.getElementById("themeText").textContent =
-        dark
-            ? "Dark appearance enabled"
-            : "Use dark appearance";
-
-    localStorage.setItem("darkMode", dark);
-
-}
-
-
-function loadTheme() {
-
-    const dark =
-        localStorage.getItem("darkMode") === "true";
-
-    if (dark) {
-        document.body.classList.add("dark");
-
-        const toggle =
-            document.getElementById("darkModeToggle");
-
-        if (toggle) {
-            toggle.checked = true;
-        }
-
-        const text =
-            document.getElementById("themeText");
-
-        if (text) {
-            text.textContent = "Dark appearance enabled";
-        }
+    const text = document.getElementById("themeText");
+    if (text) {
+        text.textContent = dark ? "Dark appearance enabled" : "Use dark appearance";
     }
 }
+
+function toggleDarkMode() {
+    const dark = !document.body.classList.contains("dark");
+    try {
+        // localStorage keeps the choice after reload, logout, and the next login.
+        localStorage.setItem("darkMode", String(dark));
+    } catch (error) {
+        console.warn("Unable to save appearance preference in this browser.", error);
+    }
+    applyThemePreference(dark);
+}
+
+function loadTheme() {
+    let dark = false;
+    try {
+        dark = localStorage.getItem("darkMode") === "true";
+    } catch (error) {
+        // Use light appearance if storage is unavailable.
+    }
+    applyThemePreference(dark);
+}
+
+// Keep the selected appearance consistent if the user has Vynqo open in multiple tabs.
+window.addEventListener("storage", (event) => {
+    if (event.key === "darkMode") {
+        applyThemePreference(event.newValue === "true");
+    }
+});
 
 
 /* ================= POSTS, COMMENTS, LIKES, STORIES =================
@@ -806,7 +803,7 @@ async function signup() {
         console.error(error);
 
         showToast(
-            "Unable to connect to PLAYHUB server"
+            "Unable to connect to Vynqo server"
         );
     }
 }

@@ -3,20 +3,47 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PlayHub</title>
-    <link rel="stylesheet" href="style.css?v=9">
+    <title>Vynqo — Connect. Play. Share.</title>
+    <link rel="stylesheet" href="style.css?v=10">
 </head>
 
 <body>
+<script>
+  // Restore the saved appearance before the app UI paints.
+  try { if (localStorage.getItem("darkMode") === "true") document.body.classList.add("dark"); } catch (_) {}
+</script>
 
 <div id="toast"></div>
 
 <!-- ================= AUTH ================= -->
 
 <section id="authScreen" class="auth-screen">
-    <div class="auth-card">
-        <div class="logo">PLAY<span>HUB</span></div>
-        <p class="auth-subtitle">Social gaming. Real connections.</p>
+    <header class="auth-topbar">
+        <a class="brand-lockup" href="#" aria-label="Vynqo home">
+            <span class="brand-mark" aria-hidden="true">V</span>
+            <span class="logo">vyn<span>qo</span></span>
+        </a>
+        <nav class="auth-top-actions" aria-label="Account">
+            <span class="auth-top-note">Your people. Your world.</span>
+            <button type="button" class="auth-nav-login" onclick="showLogin()">Log in</button>
+            <button type="button" class="auth-nav-create" onclick="showSignup()">Create account <span aria-hidden="true">↗</span></button>
+        </nav>
+    </header>
+    <div class="auth-layout">
+      <div class="auth-hero">
+        <div class="hero-eyebrow"><span class="hero-live-dot"></span> YOUR WORLD, CONNECTED</div>
+        <h1>One place.<br><span>Every connection.</span></h1>
+        <p class="hero-copy">Meet your people, share your moments, play together and keep every conversation close.</p>
+        <div class="hero-pills" aria-label="Vynqo features">
+          <span><i>✦</i> Social</span><span><i>↗</i> Chat</span><span><i>▣</i> Gaming</span><span><i>◉</i> Video calls</span>
+        </div>
+        <div class="hero-orbit orbit-one"></div><div class="hero-orbit orbit-two"></div>
+        <div class="hero-glow"></div>
+        <div class="hero-bottom-note"><span class="hero-mini-avatars"><i>V</i><i>+</i><i>✦</i></span><span>Good things happen when we connect.</span></div>
+      </div>
+      <div class="auth-card">
+        <div class="logo auth-mobile-logo">vyn<span>qo</span></div>
+        <p class="auth-subtitle">Your people. Your world. All in one place.</p>
 
         <div id="loginForm">
             <h2>Welcome back</h2>
@@ -86,10 +113,10 @@
             <h2>Email verified successfully</h2>
 
             <p class="verify-text">
-                Your account is ready. Log in to PlayHub to continue.
+                Your account is ready. Log in to Vynqo to continue.
             </p>
 
-            <button class="primary-btn" onclick="goToLoginAfterVerify()">Log in to PlayHub</button>
+            <button class="primary-btn" onclick="goToLoginAfterVerify()">Log in to Vynqo</button>
         </div>
 
         <div id="forgotForm" class="hidden">
@@ -141,12 +168,13 @@
             <h2>Password updated</h2>
 
             <p class="verify-text">
-                Your password was changed. Log in to PlayHub with your new password.
+                Your password was changed. Log in to Vynqo with your new password.
             </p>
 
-            <button class="primary-btn" onclick="backToLoginAfterReset()">Log in to PlayHub</button>
+            <button class="primary-btn" onclick="backToLoginAfterReset()">Log in to Vynqo</button>
         </div>
 
+      </div>
     </div>
 </section>
 
@@ -157,7 +185,7 @@
 
     <!-- TOP BAR -->
     <header class="topbar">
-        <div class="logo">PLAY<span>HUB</span></div>
+        <a class="brand-lockup app-brand" href="#" onclick="showScreen('home'); return false;" aria-label="Vynqo home"><span class="brand-mark" aria-hidden="true">V</span><span class="logo">vyn<span>qo</span></span></a>
 
         <div class="top-actions">
             <button onclick="openNotifications()" class="icon-btn"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span id="notifBadge" class="badge-dot hidden"></span></button>
@@ -1449,7 +1477,7 @@
 
         <header class="pool-top">
 
-            <button class="chat-icon-btn" onclick="poolMinimize()" aria-label="Back to PlayHub. The match keeps running."><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg></button>
+            <button class="chat-icon-btn" onclick="poolMinimize()" aria-label="Back to Vynqo. The match keeps running."><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg></button>
 
             <div class="pool-status">
                 <strong id="poolStatus">Loading match...</strong>
@@ -1665,12 +1693,12 @@
 </div>
 
 
-<script src="app.js?v=8"></script>
-<script src="social.js?v=9"></script>
-<script src="messages.js?v=10"></script>
-<script src="feed.js?v=8"></script>
-<script src="profile.js?v=8"></script>
-<script src="pool.js?v=8"></script>
+<script src="app.js?v=9"></script>
+<script src="social.js?v=10"></script>
+<script src="messages.js?v=11"></script>
+<script src="feed.js?v=9"></script>
+<script src="profile.js?v=9"></script>
+<script src="pool.js?v=9"></script>
 
 </body>
 </html>
