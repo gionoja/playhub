@@ -64,6 +64,9 @@ app.register_blueprint(feed_bp)
 app.register_blueprint(messages_bp)
 app.register_blueprint(games_bp)
 
+# Additive World Chat and matchmaking API; existing routes remain unchanged.
+from world_chat import world_chat_bp
+app.register_blueprint(world_chat_bp)
 
 with app.app_context():
     db.create_all()
