@@ -15,7 +15,8 @@ from sqlalchemy import CheckConstraint, Index, UniqueConstraint, and_, func, or_
 
 from auth import login_required
 from database import db
-from models import User, UserBlock
+from models import GameChallenge, User, UserBlock
+from games import _in_open_match, _pair_key, _start_match_from
 
 world_chat_bp = Blueprint("world_chat", __name__)
 
@@ -107,6 +108,29 @@ class WorldGameParticipant(db.Model):
     )
 
 
+class WorldGameRequest(db.Model):
+    """A player asking to join someone's invitation. Accepting it adds them to the roster
+    and, for pool/snooker, starts a real two-player match."""
+    __tablename__ = "world_game_requests"
+
+    id = db.Column(db.Integer, primary_key=True)
+    invitation_id = db.Column(db.Integer, db.ForeignKey("world_game_invitations.id"), nullable=False, index=True)
+    requester_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+    message_id = db.Column(db.Integer, nullable=True, index=True)      # the World Chat message announcing it
+    status = db.Column(db.String(12), nullable=False, default="PENDING", index=True)  # PENDING|ACCEPTED|DECLINED|CANCELLED
+    match_id = db.Column(db.Integer, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
+
+    invitation = db.relationship("WorldGameInvitation", foreign_keys=[invitation_id])
+    requester = db.relationship("User", foreign_keys=[requester_id])
+
+
+def _is_pool(game_type):
+    t = (game_type or "").lower()
+    return "pool" in t or "snooker" in t
+
+
 def _iso(value):
     return value.isoformat() + "Z" if value else None
 
@@ -141,8 +165,29 @@ def _invitation_payload(invitation, viewer_id):
         ],
         "joined_by_me": any(p.user_id == viewer_id for p in active),
         "hosted_by_me": invitation.host_id == viewer_id,
+        "requested_by_me": WorldGameRequest.query.filter_by(
+            invitation_id=invitation.id, requester_id=viewer_id, status="PENDING").first() is not None,
+        "is_pool": _is_pool(invitation.game_type),
         "created_at": _iso(invitation.created_at),
         "updated_at": _iso(invitation.updated_at),
+    }
+
+
+def _request_payload(req, viewer_id):
+    inv = req.invitation
+    return {
+        "id": req.id,
+        "invitation_id": req.invitation_id,
+        "status": req.status,
+        "requester": _user_payload(req.requester),
+        "host": _user_payload(inv.host),
+        "game_type": inv.game_type,
+        "is_pool": _is_pool(inv.game_type),
+        "match_id": req.match_id,
+        "can_respond": req.status == "PENDING" and inv.host_id == viewer_id,
+        "mine": req.requester_id == viewer_id,
+        "involved": viewer_id in (req.requester_id, inv.host_id),
+        "updated_at": _iso(req.updated_at),
     }
 
 
@@ -172,6 +217,11 @@ def _message_payload(message, viewer_id):
         "sender_id": message.sender_id,
         "mine": message.sender_id == viewer_id,
         "invitation": _invitation_payload(invitation, viewer_id) if invitation else None,
+        "request": (
+            _request_payload(r, viewer_id)
+            if message.message_type == "JOIN_REQUEST"
+            and (r := WorldGameRequest.query.filter_by(message_id=message.id).first()) else None
+        ),
         "reply_to_id": message.reply_to_id,
         "reply_to": _reply_preview(message.reply_to, viewer_id) if message.reply_to_id else None,
         # True only for a reply to one of the viewer's own messages that they have not seen yet.
@@ -187,7 +237,7 @@ def _unread_reply_filter(user_id):
     return and_(
         WorldChatMessage.reply_notify_user_id == user_id,
         WorldChatMessage.reply_read_at.is_(None),
-        WorldChatMessage.message_type == "TEXT",
+        WorldChatMessage.message_type.in_(("TEXT", "JOIN_REQUEST")),
     )
 
 
@@ -230,6 +280,7 @@ def world_chat_history():
     rows.reverse()
 
     invitation_updates = []
+    request_updates = []
     since_raw = request.args.get("inv_since")
     if since_raw:
         try:
@@ -245,6 +296,13 @@ def world_chat_history():
             .all()
         )
         invitation_updates = [_invitation_payload(inv, g.me_id) for inv in changed]
+        mine_requests = (
+            WorldGameRequest.query.join(WorldGameInvitation, WorldGameInvitation.id == WorldGameRequest.invitation_id)
+            .filter(WorldGameRequest.updated_at > since,
+                    or_(WorldGameRequest.requester_id == g.me_id, WorldGameInvitation.host_id == g.me_id))
+            .order_by(WorldGameRequest.updated_at.desc()).limit(50).all()
+        )
+        request_updates = [_request_payload(r, g.me_id) for r in mine_requests]
 
     return jsonify({
         "messages": [_message_payload(row, g.me_id) for row in rows],
@@ -252,6 +310,7 @@ def world_chat_history():
         "last_id": rows[-1].id if rows else after_id,
         "unread_reply_count": _unread_reply_count(g.me_id),
         "invitation_updates": invitation_updates,
+        "request_updates": request_updates,
         "server_time": _iso(server_time),
     })
 
@@ -388,31 +447,140 @@ def world_chat_create_invitation():
 @world_chat_bp.post("/world-chat/invitations/<int:invitation_id>/join")
 @login_required
 def world_chat_join_invitation(invitation_id):
+    """Asking to join. The host gets a World Chat message and decides; nobody is added until
+    the host accepts."""
     invitation = db.session.get(WorldGameInvitation, invitation_id)
     if not invitation:
         return jsonify({"message": "Invitation not found."}), 404
     if invitation.state != "OPEN":
         return jsonify({"message": "This invitation is no longer open."}), 409
+    if invitation.host_id == g.me_id:
+        return jsonify({"message": "You are the host of this invitation."}), 409
 
-    participant = WorldGameParticipant.query.filter_by(
-        invitation_id=invitation.id, user_id=g.me_id
-    ).first()
     active = _active_participants(invitation)
-
-    if participant and participant.status == "JOINED":
+    if any(p.user_id == g.me_id for p in active):
         return jsonify({"invitation": _invitation_payload(invitation, g.me_id), "message": "You have already joined."}), 200
     if len(active) >= invitation.max_participants:
         return jsonify({"message": "This game invitation is full."}), 409
+    if WorldGameRequest.query.filter_by(invitation_id=invitation.id, requester_id=g.me_id, status="PENDING").first():
+        return jsonify({"message": "You already asked to join. Waiting for the host."}), 409
+    if _is_pool(invitation.game_type) and _in_open_match(g.me_id):
+        return jsonify({"message": "Finish your current match before joining another game."}), 409
 
-    if participant:
-        participant.status = "JOINED"
-        participant.updated_at = datetime.utcnow()
+    name = g.user.full_name or g.user.username
+    if _is_pool(invitation.game_type):
+        text = f"{name} requested to join and play a pool game with you"
     else:
-        db.session.add(WorldGameParticipant(invitation_id=invitation.id, user_id=g.me_id, status="JOINED"))
+        text = f"{name} requested to join your {invitation.game_type} game"
 
+    parent = WorldChatMessage.query.filter_by(invitation_id=invitation.id, message_type="GAME_INVITATION").first()
+    message = WorldChatMessage(
+        sender_id=g.me_id, message_type="JOIN_REQUEST", body=text, invitation_id=invitation.id,
+        reply_to_id=parent.id if parent else None,
+        # the host is notified through the normal unread-reply badge (never across a block)
+        reply_notify_user_id=None if _blocked_between(invitation.host_id, g.me_id) else invitation.host_id,
+    )
+    db.session.add(message)
+    db.session.flush()
+    req = WorldGameRequest(invitation_id=invitation.id, requester_id=g.me_id, message_id=message.id)
+    db.session.add(req)
     invitation.updated_at = datetime.utcnow()
     db.session.commit()
-    return jsonify({"invitation": _invitation_payload(invitation, g.me_id)}), 200
+    return jsonify({
+        "message": _message_payload(message, g.me_id),
+        "request": _request_payload(req, g.me_id),
+        "invitation": _invitation_payload(invitation, g.me_id),
+    }), 201
+
+
+def _answer(request_id, role):
+    req = db.session.get(WorldGameRequest, request_id)
+    if not req:
+        return None, (jsonify({"message": "Request not found."}), 404)
+    allowed = req.invitation.host_id if role == "host" else req.requester_id
+    if allowed != g.me_id:
+        return None, (jsonify({"message": "Only the host can answer this request." if role == "host" else "This is not your request."}), 403)
+    return req, None
+
+
+def _answered_response(req):
+    return jsonify({
+        "request": _request_payload(req, g.me_id),
+        "invitation": _invitation_payload(req.invitation, g.me_id),
+        "match_id": req.match_id,
+    })
+
+
+@world_chat_bp.post("/world-chat/requests/<int:request_id>/accept")
+@login_required
+def world_chat_accept_request(request_id):
+    req, err = _answer(request_id, "host")
+    if err:
+        return err
+    inv = req.invitation
+    if req.status != "PENDING":
+        return jsonify({"message": f"This request was already {req.status.lower()}."}), 409
+    if inv.state != "OPEN":
+        return jsonify({"message": "This invitation is no longer open."}), 409
+    if len(_active_participants(inv)) >= inv.max_participants:
+        return jsonify({"message": "This game invitation is full."}), 409
+
+    pool = _is_pool(inv.game_type)
+    if pool and (_in_open_match(g.me_id) or _in_open_match(req.requester_id)):
+        return jsonify({"message": "One of you is already in a match. Finish it first."}), 409
+
+    # only one accept can win
+    won = WorldGameRequest.query.filter_by(id=req.id, status="PENDING").update(
+        {"status": "ACCEPTED", "updated_at": datetime.utcnow()}, synchronize_session=False)
+    if won != 1:
+        db.session.rollback()
+        return jsonify({"message": "This request was already answered."}), 409
+    db.session.refresh(req)
+
+    row = WorldGameParticipant.query.filter_by(invitation_id=inv.id, user_id=req.requester_id).first()
+    if row:
+        row.status = "JOINED"
+    else:
+        db.session.add(WorldGameParticipant(invitation_id=inv.id, user_id=req.requester_id, status="JOINED"))
+
+    if pool:
+        now = datetime.utcnow()
+        challenge = GameChallenge(
+            challenger_id=g.me_id, opponent_id=req.requester_id, pair_key=_pair_key(g.me_id, req.requester_id),
+            status="accepted", responded_at=now, expires_at=now + timedelta(minutes=10))
+        db.session.add(challenge)
+        db.session.flush()
+        match = _start_match_from(challenge)
+        req.match_id = match.id
+    inv.updated_at = datetime.utcnow()
+    db.session.commit()
+    return _answered_response(req)
+
+
+@world_chat_bp.post("/world-chat/requests/<int:request_id>/decline")
+@login_required
+def world_chat_decline_request(request_id):
+    req, err = _answer(request_id, "host")
+    if err:
+        return err
+    if req.status != "PENDING":
+        return jsonify({"message": f"This request was already {req.status.lower()}."}), 409
+    req.status = "DECLINED"
+    db.session.commit()
+    return _answered_response(req)
+
+
+@world_chat_bp.post("/world-chat/requests/<int:request_id>/cancel")
+@login_required
+def world_chat_cancel_request(request_id):
+    req, err = _answer(request_id, "requester")
+    if err:
+        return err
+    if req.status != "PENDING":
+        return jsonify({"message": f"This request was already {req.status.lower()}."}), 409
+    req.status = "CANCELLED"
+    db.session.commit()
+    return _answered_response(req)
 
 
 @world_chat_bp.post("/world-chat/invitations/<int:invitation_id>/leave")

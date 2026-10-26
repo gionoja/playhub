@@ -272,13 +272,29 @@ def invite(client, headers, **kw):
     return client.post("/world-chat/invitations", json=body, headers=headers)
 
 
+def request_join(client, auth, inv_id, who):
+    r = client.post(f"/world-chat/invitations/{inv_id}/join", headers=auth(who))
+    assert r.status_code == 201, r.get_json()
+    return r.get_json()
+
+
+def join(client, auth, inv_id, who, host="alice"):
+    """Ask to join and have the host accept."""
+    req = request_join(client, auth, inv_id, who)["request"]
+    r = client.post(f"/world-chat/requests/{req['id']}/accept", headers=auth(host))
+    assert r.status_code == 200, r.get_json()
+    return r.get_json()
+
+
 def test_invitation_create_join_leave_and_counts(client, auth):
     r = invite(client, auth("alice"))
     assert r.status_code == 201
     inv = r.get_json()["invitation"]
     assert inv["participant_count"] == 1 and inv["hosted_by_me"] is True
 
-    j = client.post(f"/world-chat/invitations/{inv['id']}/join", headers=auth("bob")).get_json()["invitation"]
+    join(client, auth, inv["id"], "bob")
+    poll = client.get("/world-chat/messages?after_id=999&inv_since=2000-01-01T00:00:00Z", headers=auth("bob")).get_json()
+    j = [u for u in poll["invitation_updates"] if u["id"] == inv["id"]][0]   # Bob's own view
     assert j["participant_count"] == 2 and j["joined_by_me"] is True and j["hosted_by_me"] is False
 
     l = client.post(f"/world-chat/invitations/{inv['id']}/leave", headers=auth("bob")).get_json()["invitation"]
@@ -287,7 +303,7 @@ def test_invitation_create_join_leave_and_counts(client, auth):
 
 def test_invitation_full_and_host_cannot_leave(client, auth):
     inv = invite(client, auth("alice"), max_participants=2).get_json()["invitation"]
-    client.post(f"/world-chat/invitations/{inv['id']}/join", headers=auth("bob"))
+    join(client, auth, inv["id"], "bob")
     assert client.post(f"/world-chat/invitations/{inv['id']}/join", headers=auth("cara")).status_code == 409
     assert client.post(f"/world-chat/invitations/{inv['id']}/leave", headers=auth("alice")).status_code == 409
 
@@ -348,7 +364,7 @@ def test_history_reports_server_time_and_invitation_changes(client, auth):
     first = client.get("/world-chat/messages", headers=auth("alice")).get_json()
     assert first["server_time"].endswith("Z")
 
-    client.post(f"/world-chat/invitations/{inv['id']}/join", headers=auth("bob"))
+    join(client, auth, inv["id"], "bob")
     poll = client.get(
         "/world-chat/messages?after_id=999&inv_since=" + first["server_time"], headers=auth("alice")
     ).get_json()
@@ -364,3 +380,95 @@ def test_no_invitation_updates_without_inv_since_or_when_nothing_changed(client,
 
 def test_bad_inv_since_is_400(client, auth):
     assert client.get("/world-chat/messages?inv_since=garbage", headers=auth("alice")).status_code == 400
+
+
+# ------------------------------------------------ join requests -> pool match
+
+def pool_invite(client, auth, host="alice", game="Pool"):
+    return client.post("/world-chat/invitations", json={"game_type": game, "max_participants": 4}, headers=auth(host)).get_json()["invitation"]
+
+
+def test_join_posts_a_request_message_and_does_not_add_the_player_yet(client, auth):
+    inv = pool_invite(client, auth)
+    out = request_join(client, auth, inv["id"], "bob")
+    assert out["message"]["message_type"] == "JOIN_REQUEST"
+    assert out["message"]["body"] == "Bob requested to join and play a pool game with you"
+    assert out["request"]["status"] == "PENDING" and out["request"]["can_respond"] is False
+    assert out["invitation"]["participant_count"] == 1 and out["invitation"]["requested_by_me"] is True
+    # everyone can see the message; only the host may answer it
+    seen = client.get("/world-chat/messages", headers=auth("alice")).get_json()["messages"][-1]
+    assert seen["request"]["can_respond"] is True and seen["request"]["involved"] is True
+
+
+def test_request_notifies_the_host_through_the_badge(client, auth):
+    inv = pool_invite(client, auth)
+    request_join(client, auth, inv["id"], "bob")
+    assert unread(client, auth("alice")) == 1
+    assert unread(client, auth("bob")) == 0
+
+
+def test_cannot_request_twice_or_request_your_own_game(client, auth):
+    inv = pool_invite(client, auth)
+    request_join(client, auth, inv["id"], "bob")
+    assert client.post(f"/world-chat/invitations/{inv['id']}/join", headers=auth("bob")).status_code == 409
+    assert client.post(f"/world-chat/invitations/{inv['id']}/join", headers=auth("alice")).status_code == 409
+
+
+def test_accepting_adds_the_player_and_starts_a_pool_match(app, client, auth, ids):
+    from models import GameMatch
+    inv = pool_invite(client, auth)
+    out = join(client, auth, inv["id"], "bob")
+    assert out["request"]["status"] == "ACCEPTED" and out["match_id"]
+    assert out["invitation"]["participant_count"] == 2
+    with app.app_context():
+        m = db.session.get(GameMatch, out["match_id"])
+        assert {m.player1_id, m.player2_id} == {ids["alice"], ids["bob"]}
+        assert m.status in ("waiting", "active")
+    # the requester sees the same match id through the live updates
+    poll = client.get("/world-chat/messages?after_id=999&inv_since=2000-01-01T00:00:00Z", headers=auth("bob")).get_json()
+    assert [r for r in poll["request_updates"] if r["id"] == out["request"]["id"]][0]["match_id"] == out["match_id"]
+
+
+def test_only_the_host_can_accept_or_decline(client, auth):
+    inv = pool_invite(client, auth)
+    req = request_join(client, auth, inv["id"], "bob")["request"]
+    for who in ("bob", "cara"):
+        assert client.post(f"/world-chat/requests/{req['id']}/accept", headers=auth(who)).status_code == 403
+        assert client.post(f"/world-chat/requests/{req['id']}/decline", headers=auth(who)).status_code == 403
+
+
+def test_decline_and_cancel(client, auth):
+    inv = pool_invite(client, auth)
+    r1 = request_join(client, auth, inv["id"], "bob")["request"]
+    d = client.post(f"/world-chat/requests/{r1['id']}/decline", headers=auth("alice")).get_json()
+    assert d["request"]["status"] == "DECLINED" and d["invitation"]["participant_count"] == 1
+    assert client.post(f"/world-chat/requests/{r1['id']}/accept", headers=auth("alice")).status_code == 409
+    r2 = request_join(client, auth, inv["id"], "cara")["request"]
+    assert client.post(f"/world-chat/requests/{r2['id']}/cancel", headers=auth("bob")).status_code == 403
+    c = client.post(f"/world-chat/requests/{r2['id']}/cancel", headers=auth("cara")).get_json()
+    assert c["request"]["status"] == "CANCELLED"
+    assert request_join(client, auth, inv["id"], "bob")["request"]["status"] == "PENDING"   # may ask again after a decline
+
+
+def test_double_accept_cannot_start_two_matches(client, auth):
+    inv = pool_invite(client, auth)
+    req = request_join(client, auth, inv["id"], "bob")["request"]
+    assert client.post(f"/world-chat/requests/{req['id']}/accept", headers=auth("alice")).status_code == 200
+    assert client.post(f"/world-chat/requests/{req['id']}/accept", headers=auth("alice")).status_code == 409
+
+
+def test_host_already_in_a_match_must_finish_it_first(client, auth):
+    inv = pool_invite(client, auth)
+    r1 = request_join(client, auth, inv["id"], "bob")["request"]
+    r2 = request_join(client, auth, inv["id"], "cara")["request"]
+    assert client.post(f"/world-chat/requests/{r1['id']}/accept", headers=auth("alice")).status_code == 200
+    blocked = client.post(f"/world-chat/requests/{r2['id']}/accept", headers=auth("alice"))
+    assert blocked.status_code == 409 and "match" in blocked.get_json()["message"].lower()
+
+
+def test_non_pool_game_accepts_without_a_match(client, auth):
+    inv = pool_invite(client, auth, game="Ludo")
+    out = request_join(client, auth, inv["id"], "bob")
+    assert out["message"]["body"] == "Bob requested to join your Ludo game"
+    acc = client.post(f"/world-chat/requests/{out['request']['id']}/accept", headers=auth("alice")).get_json()
+    assert acc["match_id"] is None and acc["invitation"]["participant_count"] == 2
