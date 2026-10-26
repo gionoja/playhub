@@ -4237,6 +4237,8 @@ body.dark .wc-state.started { color: #6cb8ff; }
 .wc-game-actions button.subtle:hover { color: var(--text); }
 .wc-game-actions button:disabled { opacity: .55; cursor: default; }
 
+.wc-req { margin-top: 8px; padding: 9px 10px; border: 1px dashed rgba(109, 74, 255, .4); border-radius: 12px; background: rgba(109, 74, 255, .06); }
+.wc-req .wc-game-meta { margin-top: 0; }
 .wc-new-pill { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 6px; padding: 7px 13px; border: 0; border-radius: 999px; background: linear-gradient(120deg, #6d4aff, #168cf5); color: #fff; font: inherit; font-size: 12.5px; font-weight: 700; box-shadow: 0 6px 18px rgba(80, 60, 230, .4); cursor: pointer; }
 
 .wc-notice { margin: 0; padding: 0 14px; background: var(--card); color: var(--muted); font-size: 12px; line-height: 1.4; }

@@ -33,6 +33,8 @@
     lastId: 0,
     knownIds: new Set(),
     cards: new Map(),        // invitation id -> rendered card element
+    reqCards: new Map(),     // join-request id -> rendered card element
+    openedMatches: new Set(),// matches we already jumped into (never open one twice)
     invSince: null,          // server_time of the last response, used to fetch invitation changes
     pollTimer: null,
     pollBusy: false,
@@ -236,6 +238,7 @@
     box.replaceChildren();
     state.knownIds = new Set();
     state.cards = new Map();
+    state.reqCards = new Map();
     state.lastId = 0;
     hideNewPill();
   }
@@ -279,6 +282,12 @@
     if (m.message_type === "GAME_INVITATION" && m.invitation) {
       const card = buildInvitationCard(m.invitation);
       state.cards.set(m.invitation.id, card);
+      article.append(card);
+    }
+
+    if (m.message_type === "JOIN_REQUEST" && m.request) {
+      const card = buildRequestCard(m.request);
+      state.reqCards.set(m.request.id, card);
       article.append(card);
     }
 
@@ -375,9 +384,11 @@
       const full = count >= max;
 
       if (!inv.hosted_by_me) {
-        const toggle = el("button", joined ? "" : "primary", joined ? "Leave game" : (full ? "Full" : "Join game"));
+        const asked = !joined && !!inv.requested_by_me;
+        const label = joined ? "Leave game" : asked ? "Request sent" : full ? "Full" : "Request to join";
+        const toggle = el("button", joined || asked ? "" : "primary", label);
         toggle.type = "button";
-        toggle.disabled = !joined && full;
+        toggle.disabled = asked || (!joined && full);
         toggle.addEventListener("click", () => inviteAction(toggle, inv.id, joined ? "leave" : "join"));
         actions.append(toggle);
       }
@@ -404,6 +415,94 @@
     state.cards.set(inv.id, fresh);
   }
 
+  /* ------------------------------------------------ join request card */
+
+  function buildRequestCard(req) {
+    const card = el("div", "wc-req");
+    card.dataset.requestId = String(req.id);
+    card.dataset.status = req.status;
+    card.dataset.updatedAt = String(Date.parse(req.updated_at) || 0);
+    const who = req.mine ? "You" : senderName(req.requester, false);
+    const actions = el("div", "wc-game-actions");
+
+    if (req.status === "PENDING") {
+      if (req.can_respond) {
+        card.append(el("div", "wc-game-meta", "Accept to " + (req.is_pool ? "start a pool match with " : "let ") + who + (req.is_pool ? "." : " join.")));
+        const accept = el("button", "primary", req.is_pool ? "Accept & play" : "Accept");
+        accept.type = "button";
+        accept.addEventListener("click", () => requestAction(actions, req.id, "accept"));
+        const decline = el("button", "", "Decline");
+        decline.type = "button";
+        decline.addEventListener("click", () => requestAction(actions, req.id, "decline"));
+        actions.append(accept, decline);
+      } else if (req.mine) {
+        card.append(el("div", "wc-game-meta", "Waiting for the host to accept…"));
+        const cancel = el("button", "subtle", "Cancel request");
+        cancel.type = "button";
+        cancel.addEventListener("click", () => requestAction(actions, req.id, "cancel"));
+        actions.append(cancel);
+      } else {
+        card.append(el("div", "wc-game-meta", "Waiting for the host to accept…"));
+      }
+    } else if (req.status === "ACCEPTED") {
+      card.append(el("div", "wc-game-meta", "Accepted" + (req.match_id ? ". The match is ready." : ". You're in.")));
+      if (req.match_id && req.involved && typeof openPoolMatch === "function") {
+        const play = el("button", "primary", "Play now");
+        play.type = "button";
+        play.addEventListener("click", () => enterMatch(req.match_id));
+        actions.append(play);
+      }
+    } else {
+      card.append(el("div", "wc-game-meta", req.status === "DECLINED" ? "Request declined." : "Request cancelled."));
+    }
+    if (actions.children.length) card.append(actions);
+    return card;
+  }
+
+  function enterMatch(matchId) {
+    if (!matchId || typeof openPoolMatch !== "function") return;
+    if (state.open) closePanel(true);
+    openPoolMatch(matchId);
+  }
+
+  function updateRequest(req) {
+    const old = state.reqCards.get(req.id);
+    if (!old || !old.isConnected) return;
+    if ((Date.parse(req.updated_at) || 0) < Number(old.dataset.updatedAt || 0)) return;
+    const wasPending = old.dataset.status === "PENDING";
+    const fresh = buildRequestCard(req);
+    old.replaceWith(fresh);
+    state.reqCards.set(req.id, fresh);
+    // The player who asked is taken into the game as soon as the host accepts (once).
+    if (wasPending && req.status === "ACCEPTED" && req.mine && req.match_id && !state.openedMatches.has(req.match_id)) {
+      state.openedMatches.add(req.match_id);
+      showToastSafe("Your game request was accepted. Starting the match…");
+      enterMatch(req.match_id);
+    }
+  }
+
+  function showToastSafe(text) { if (typeof showToast === "function") showToast(text); }
+
+  async function requestAction(box, id, action) {
+    const session = state.session;
+    box.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+    try {
+      const data = await api("/world-chat/requests/" + id + "/" + action, { method: "POST", body: {} });
+      if (session !== state.session) return;
+      if (data.request) updateRequest(data.request);
+      if (data.invitation) updateInvitation(data.invitation);
+      if (action === "accept" && data.match_id && !state.openedMatches.has(data.match_id)) {
+        state.openedMatches.add(data.match_id);
+        enterMatch(data.match_id);
+      }
+      notice("");
+    } catch (error) {
+      if (session !== state.session) return;
+      notice(error.message || "Could not answer the request.", "error");
+      box.querySelectorAll("button").forEach((b) => { b.disabled = false; });
+    }
+  }
+
   async function inviteAction(button, id, action, value) {
     const session = state.session;
     const buttons = button.parentElement ? button.parentElement.querySelectorAll("button") : [button];
@@ -412,8 +511,10 @@
       const data = await api("/world-chat/invitations/" + id + "/" + action,
         { method: "POST", body: action === "state" ? { state: value } : {} });
       if (session !== state.session) return;
+      if (data.message && data.message.id) addMessage(data.message);
       if (data.invitation) updateInvitation(data.invitation);
-      notice("");
+      if (action === "join" && data.request) { notice("Request sent. The host will see it in World Chat.", "ok"); scrollToBottom(); }
+      else notice("");
     } catch (error) {
       if (session !== state.session) return;
       notice(error.message || "Could not update the game.", "error");
@@ -472,6 +573,7 @@
       let added = 0;
       list.forEach((m) => { if (addMessage(m)) added++; });
       (data.invitation_updates || []).forEach(updateInvitation);
+      (data.request_updates || []).forEach(updateRequest);
       state.invSince = data.server_time || state.invSince;
       setBadge(data.unread_reply_count);
       if (added) {
