@@ -1,0 +1,453 @@
+# PlayHub — Fair Match, Disconnection & Wallet Settlement System
+
+## 1. Project Overview
+
+PlayHub is a social gaming platform where users can find opponents, agree on stakes, play games such as Ludo and Snooker, and receive rewards based on match results.
+
+This project focuses on making competitive matches fair, preventing cheating, protecting player balances, and ensuring that every match ends in a predictable and trustworthy way.
+
+**Primary objective:** No player should be able to manipulate a match result, spend reserved funds, claim an undeserved victory, or cause a duplicate wallet payment.
+
+This work must extend the existing PlayHub application without removing, replacing, duplicating, or breaking existing features.
+
+## 2. Core Requirements
+
+The system must support:
+
+- Secure matchmaking and stake agreements.
+- Wallet balance verification.
+- Stake reservation before a match starts.
+- Server-authoritative game state and results.
+- Explicit forfeiting.
+- Network disconnection detection.
+- Reconnection and match recovery.
+- Timeout and repeated-disconnection policies.
+- Server failure recovery.
+- Secure, one-time match settlement.
+- Refunds and disputed-match handling.
+- Transaction history and audit logs.
+- Automated tests for normal and exceptional cases.
+
+## 3. Match Lifecycle
+
+A match should follow a controlled lifecycle.
+
+`created → awaiting_acceptance → awaiting_funds → ready → in_progress → reconnecting (when needed) → completed`
+
+Other possible terminal outcomes include:
+
+- `forfeited`
+- `cancelled`
+- `refunded`
+- `disputed`
+
+These are conceptual states; the implementation must be reconciled with the existing match model before adding or changing database fields.
+
+Every transition must be validated by the backend. A client must never be allowed to set a match directly to `completed` or declare itself the winner.
+
+## 4. Match Creation and Stake Agreement
+
+When a player creates a match:
+
+1. The backend authenticates the requesting user.
+2. It validates the selected game and stake.
+3. The opponent receives the match invitation.
+4. The opponent accepts or declines.
+5. Both players are shown the agreed stake and match rules.
+6. The backend verifies that both players can fund the match.
+7. The stakes are reserved securely.
+8. The match starts only after all required conditions are satisfied.
+
+The agreed stake must not be changed unilaterally after acceptance. Any permitted change must require renewed agreement from both players before funds are committed.
+
+The backend must reject invalid stakes, self-matches, duplicate requests, insufficient balances, and unauthorized match operations.
+
+## 5. Wallet and Reserved Funds
+
+Reserved funds are money committed to a match but not yet awarded to either player.
+
+For example, if both players stake ₦1,000:
+
+- Player A reserves ₦1,000.
+- Player B reserves ₦1,000.
+- The total match pot is ₦2,000 before any platform fee.
+
+Reserved funds must not be available for another match, withdrawal, or ordinary spending.
+
+### Wallet requirements
+
+- Store money in integer minor units, such as kobo, rather than floating-point amounts.
+- Keep an auditable transaction ledger.
+- Separate available balances from reserved balances, either through explicit fields or an equivalent ledger-derived design.
+- Use atomic database transactions for reservations and settlements.
+- Prevent negative available balances.
+- Prevent the same funds from being reserved more than once.
+- Ensure a failed operation rolls back all related changes.
+- Keep a unique reference for each financial operation.
+- Make retries safe so that repeated requests do not duplicate a debit, credit, or refund.
+
+The existing wallet and match models must be inspected before deciding how to implement these requirements.
+
+## 6. Forfeit Policy
+
+A forfeit occurs when a player explicitly surrenders a match or loses under the agreed timeout rules.
+
+### Explicit forfeit
+
+1. The player selects **Forfeit Match**.
+2. PlayHub displays a confirmation explaining the consequences.
+3. The player confirms.
+4. The backend validates that the match is active and that the player is a participant.
+5. The backend records the forfeit.
+6. The match is settled according to its agreed rules.
+
+An explicit forfeit should not require the opponent to approve the surrender, provided the action is valid and the match rules permit it.
+
+The confirmation should help prevent accidental forfeits.
+
+### Forfeit security
+
+- Only a participant can forfeit their own match.
+- A player cannot forfeit someone else's match.
+- A completed match cannot be forfeited again.
+- Repeated requests must not produce repeated settlements.
+- The forfeit must be recorded with its timestamp and reason.
+- The backend, not the frontend, determines the resulting financial changes.
+
+## 7. Network Disconnection and Reconnection
+
+A disconnection does not automatically prove that a player has abandoned the match.
+
+The system must distinguish observable connection failures from explicit forfeits and platform failures.
+
+### Initial reconnection policy
+
+Use a configurable grace period, initially proposed as 60 seconds, and validate that duration through testing.
+
+When a disconnection is detected:
+
+1. Record the last valid communication with the player.
+2. Change the match to `reconnecting`.
+3. Pause the match when supported by the game's rules.
+4. Notify the connected opponent.
+5. Display a reconnection countdown.
+6. Preserve the current authoritative game state.
+7. Allow the disconnected player to reconnect before the server-controlled deadline.
+
+If the player reconnects in time, restore the match and continue from the last valid state.
+
+The deadline must be calculated and enforced by the backend, not by a browser countdown.
+
+### When the player fails to reconnect
+
+If the deadline expires:
+
+1. Confirm that the match is still active.
+2. Confirm that the deadline has genuinely expired.
+3. Check whether PlayHub is experiencing a platform-wide failure.
+4. Check whether the game state remains valid.
+5. Apply the published timeout policy.
+6. Record the decision and settle only once.
+
+The default policy may treat an expired reconnection deadline as a forfeit when the match remains valid and the platform is functioning normally.
+
+A network failure alone cannot establish deliberate cheating. The policy should be disclosed before the match starts.
+
+### Repeated disconnections
+
+The system should record repeated interruptions and enforce a clearly published policy.
+
+Possible controls include:
+
+- A limited number of reconnection opportunities.
+- A configurable total interruption allowance.
+- A longer review process for suspicious repeated interruptions.
+- Temporary restrictions on matchmaking after repeated abuse.
+
+Penalties must be applied consistently and must not rely solely on whether a player was winning or losing.
+
+## 8. Game Results and Anti-Cheating
+
+The backend must be the authority for match outcomes.
+
+A player must not be able to win by sending a request such as:
+
+`{"winner_id": 123}`
+
+The backend must determine whether the submitted action or result is valid.
+
+### Requirements
+
+- Validate game actions on the server.
+- Enforce turn order and legal moves where applicable.
+- Reject stale or invalid game-state updates.
+- Use match versions or equivalent concurrency controls.
+- Validate the final result against authoritative game state.
+- Prevent clients from editing the winner, score, stake, or settlement status.
+- Record the evidence used to determine the result.
+
+### Ludo
+
+The backend should validate legal moves, turn order, dice outcomes and match completion.
+
+Dice outcomes should be generated or verified through trusted server logic, not accepted blindly from a client.
+
+### Snooker
+
+The backend should validate the authoritative match state, scoring and valid completion conditions.
+
+The precise implementation depends on how the existing Snooker game represents and processes player actions.
+
+If a game currently determines its winner entirely in the browser, that implementation must be reviewed before it is used for real-money matches.
+
+## 9. Secure Match Settlement
+
+Settlement is the process of releasing reserved funds according to the final valid outcome.
+
+For a match with two ₦1,000 stakes and no platform fee:
+
+- The total reserved pot is ₦2,000.
+- The valid winner receives the agreed ₦2,000 prize.
+- The loser's stake is transferred according to the agreed rules.
+- Both players' wallet and transaction records are updated consistently.
+
+If a platform fee is introduced, its calculation must be disclosed before both players accept the match.
+
+### Settlement requirements
+
+1. Validate the match outcome.
+2. Confirm that the match has not already been settled.
+3. Verify the reservation records.
+4. Calculate the payout using the agreed rules.
+5. Update wallet or ledger records atomically.
+6. Mark the match as settled.
+7. Record the payout and transaction references.
+8. Notify both players after the transaction succeeds.
+
+A settlement must be safe against simultaneous requests, network retries, duplicate events and application restarts.
+
+A frontend notification saying that a player won must never be treated as proof that money was transferred.
+
+## 10. Platform Failures and Refunds
+
+PlayHub must not automatically punish players for failures caused by the platform itself.
+
+If the game server crashes, a database operation fails, or the match becomes corrupted:
+
+1. Preserve available match and transaction records.
+2. Prevent settlement while the outcome is uncertain.
+3. Attempt recovery from the last valid state.
+4. Resume the match if recovery is safe.
+5. Otherwise, apply the documented cancellation or refund policy.
+6. Release each reservation at most once.
+7. Notify both players of the outcome.
+
+A refund must reverse the original reservation or financial commitment without creating additional funds.
+
+If a financial operation partially fails, the system must reconcile the ledger and reservation state before attempting another settlement.
+
+## 11. Disputed Matches
+
+Players should have a way to report a disputed outcome.
+
+The system should record:
+
+- Match identifier.
+- Player identifiers.
+- Match state and version.
+- Relevant game events.
+- Disconnection and reconnection timestamps.
+- Forfeit or timeout reason.
+- Settlement status.
+- Related transaction references.
+
+A disputed match must be placed into a controlled review state when appropriate. Its funds should remain protected until a valid outcome is established.
+
+Administrative tools must require appropriate authorization and produce audit records for every consequential action.
+
+Administrators must not be able to alter balances silently.
+
+## 12. Notifications and User Experience
+
+Players should receive clear explanations of important match events.
+
+Examples:
+
+- Your opponent has disconnected.
+- Your opponent has 60 seconds to reconnect.
+- You have reconnected. The match will resume.
+- Your opponent has forfeited.
+- The reconnection deadline has expired.
+- This match is temporarily under review.
+- Your match was cancelled and your reserved stake was released.
+- Your match has been settled successfully.
+
+The interface must distinguish a pending result from a confirmed result.
+
+Notifications should be generated from trusted backend events rather than being used to trigger financial operations themselves.
+
+## 13. Database and Backend Review
+
+Before implementation, inspect the existing PlayHub backend, including:
+
+- `GameMatch` and its state/version fields.
+- Game challenges and agreed stakes.
+- User and profile relationships.
+- Wallet and balance records.
+- Existing transaction or payment models.
+- Authentication and authorization.
+- Matchmaking endpoints.
+- Game action and result handlers.
+- Database migrations and transaction handling.
+- Existing notification infrastructure.
+
+Reuse the existing models and endpoints where appropriate.
+
+Do not introduce duplicate wallet models, duplicate settlement systems, or competing definitions of match state.
+
+Add new fields, tables or migrations only where the current implementation cannot safely support the required behavior.
+
+## 14. Testing Requirements
+
+The implementation must include automated tests for the following cases.
+
+### Match creation and funding
+
+- Valid match creation.
+- Invalid stake.
+- Insufficient funds.
+- Opponent declines.
+- Stake changes after acceptance.
+- Two simultaneous matches attempting to reserve the same funds.
+
+### Forfeits
+
+- Valid explicit forfeit.
+- Unauthorized forfeit attempt.
+- Accidental or duplicate forfeit request.
+- Forfeit after match completion.
+- Both players attempting conflicting actions simultaneously.
+
+### Disconnections
+
+- Temporary disconnection and successful reconnection.
+- Reconnection just before the deadline.
+- Reconnection after the deadline.
+- Player who never returns.
+- Repeated disconnections.
+- Both players disconnecting.
+- Browser refresh during a match.
+- Reconnection to the wrong match.
+- Server restart while a match is paused.
+
+### Game results
+
+- Valid winner.
+- Fake winner submitted by a client.
+- Invalid move or turn.
+- Stale game-state version.
+- Simultaneous conflicting game actions.
+- Duplicate completion events.
+
+### Wallet settlement
+
+- Winner paid correctly.
+- Loser's reserved stake handled correctly.
+- Settlement attempted twice.
+- Concurrent settlement requests.
+- Database failure during settlement.
+- Refund attempted twice.
+- Ledger and balance reconciliation.
+
+### Platform failures
+
+- Game server crash.
+- Database unavailable.
+- Invalid or corrupted match state.
+- Uncertain outcome.
+- Recovery from the last valid state.
+- Correct cancellation and refund behavior.
+
+Tests must verify not only the final displayed balance but also the database records, reservation state and transaction ledger.
+
+## 15. Security and Production Readiness
+
+Before enabling real-money matches:
+
+- Use secure authentication and server-side authorization.
+- Protect state-changing endpoints against unauthorized access and request forgery where relevant.
+- Apply rate limits and abuse monitoring.
+- Validate every client-supplied value.
+- Protect secrets and payment credentials.
+- Use secure deployment and database backups.
+- Monitor failed settlements and inconsistent balances.
+- Establish a process for recovering unfinished matches.
+- Test concurrency and failure recovery.
+- Integrate a suitable payment provider if external deposits or withdrawals are supported.
+- Verify payments on the backend before crediting wallets.
+- Review applicable gaming, payment, consumer-protection and age-related requirements.
+
+Virtual-coin testing should come first. Real-money operation requires an appropriate legal and financial setup; application code alone cannot establish that compliance.
+
+## 16. Implementation Roadmap
+
+### Phase 1 — Audit the existing application
+
+Inspect the existing models, routes, wallet logic, game state and result handling. Document what is already implemented and what is missing.
+
+### Phase 2 — Define match states and rules
+
+Establish valid transitions, forfeit rules, grace periods, cancellation conditions and settlement outcomes.
+
+### Phase 3 — Secure stake reservations
+
+Implement and test balance checks, reservation records, atomic operations and duplicate prevention.
+
+### Phase 4 — Implement disconnection recovery
+
+Add backend-controlled deadlines, reconnection handling, match restoration and timeout processing.
+
+### Phase 5 — Secure game results
+
+Review and strengthen the authoritative game logic for Ludo and Snooker.
+
+### Phase 6 — Implement settlement and refunds
+
+Create a reliable, idempotent settlement process with ledger records and safe recovery.
+
+### Phase 7 — Add notifications and dispute handling
+
+Communicate match events clearly and provide controlled handling for uncertain outcomes.
+
+### Phase 8 — Test failure scenarios
+
+Run automated tests, concurrency tests, restart tests and manual multi-user testing.
+
+### Phase 9 — Prepare for deployment
+
+Review security, monitoring, backups, payment integration and applicable legal requirements.
+
+## 17. Definition of Done
+
+The work is complete when:
+
+- Players cannot start a funded match without valid reservations.
+- Reserved funds cannot be spent elsewhere.
+- A player cannot decide the match outcome through a forged request.
+- Explicit forfeits follow the published rules.
+- Genuine disconnections receive a fair opportunity to reconnect.
+- Expired deadlines are enforced by the backend.
+- Platform failures do not automatically punish innocent players.
+- Each match is settled or refunded at most once.
+- Wallet balances and ledger records remain consistent.
+- Players can see accurate match and transaction statuses.
+- Automated tests cover the important edge cases.
+- Existing PlayHub features continue working.
+
+## Final Principle
+
+**The backend must be the trusted authority for money, match state, deadlines and results.**
+
+The frontend communicates the experience to players. The backend validates their actions, protects the stakes, determines valid outcomes, and records every financial change.
+
+Development must be incremental, tested and compatible with the existing PlayHub codebase. No existing feature should be removed or replaced merely to implement this system.
