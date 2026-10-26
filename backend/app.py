@@ -65,12 +65,13 @@ app.register_blueprint(messages_bp)
 app.register_blueprint(games_bp)
 
 # Additive World Chat and matchmaking API; existing routes remain unchanged.
-from world_chat import world_chat_bp
+from world_chat import world_chat_bp, ensure_world_chat_columns
 app.register_blueprint(world_chat_bp)
 
 with app.app_context():
     db.create_all()
     ensure_columns()          # upgrades older databases without losing anything
+    ensure_world_chat_columns()   # adds the World Chat reply columns to older databases
 
 
 def generate_username(full_name):
