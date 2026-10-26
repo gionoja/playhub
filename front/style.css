@@ -3993,3 +3993,294 @@ body.dark .chat-panel.theme-lavender .chat-messages { background-color: #1d1929;
     .msg-row { animation: none !important; }
     .chat-send, .msg-actions { transition: none !important; }
 }
+
+/* ===================================================================
+   WORLD CHAT — floating launcher + panel (bottom-left).
+   Separate from private Direct Messages. Uses the app's theme variables,
+   so light and dark mode both work. z-index 85 keeps it under the full-screen
+   chat (90) and pool game (90) views and under modals (100) and toasts (200).
+   =================================================================== */
+.wc-root.wc-off .wc-launcher, .wc-root.wc-off .wc-panel { display: none !important; }
+.wc-root { --wc-nav: 75px; --wc-gap: 14px; --wc-size: 52px; }
+
+.wc-launcher {
+    position: fixed;
+    z-index: 85;
+    left: calc(var(--wc-gap) + env(safe-area-inset-left, 0px));
+    bottom: calc(var(--wc-nav) + var(--wc-gap));
+    width: var(--wc-size);
+    height: var(--wc-size);
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    color: #fff;
+    background: linear-gradient(135deg, #6d4aff, #168cf5);
+    box-shadow: 0 10px 26px rgba(80, 60, 230, .38), 0 2px 6px rgba(0, 0, 0, .18);
+    cursor: pointer;
+    transition: transform .18s ease, box-shadow .18s ease;
+}
+.wc-launcher:hover { transform: translateY(-2px); box-shadow: 0 14px 30px rgba(80, 60, 230, .45), 0 2px 8px rgba(0, 0, 0, .2); }
+.wc-launcher:active { transform: scale(.95); }
+.wc-root.is-open .wc-launcher { box-shadow: 0 0 0 3px rgba(109, 74, 255, .28), 0 10px 26px rgba(80, 60, 230, .38); }
+
+.wc-badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    min-width: 21px;
+    height: 21px;
+    padding: 0 5px;
+    box-sizing: border-box;
+    display: grid;
+    place-items: center;
+    border: 2px solid var(--bg);
+    border-radius: 999px;
+    background: var(--danger);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 800;
+    line-height: 1;
+}
+.wc-badge.pop { animation: wc-pop .38s ease; }
+
+.wc-panel {
+    position: fixed;
+    z-index: 85;
+    left: calc(var(--wc-gap) + env(safe-area-inset-left, 0px));
+    bottom: calc(var(--wc-nav) + var(--wc-gap) + var(--wc-size) + 10px);
+    width: 380px;
+    max-width: calc(100vw - 28px);
+    height: 560px;
+    height: min(560px, calc(100dvh - var(--wc-nav) - var(--wc-gap) - var(--wc-size) - 26px));
+    min-height: 300px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    background: var(--card);
+    color: var(--text);
+    box-shadow: 0 24px 60px rgba(30, 20, 90, .28), 0 4px 14px rgba(0, 0, 0, .08);
+    transform-origin: bottom left;
+}
+.wc-panel:not(.hidden) { animation: wc-in .18s ease; }
+body.dark .wc-panel { box-shadow: 0 24px 60px rgba(0, 0, 0, .6), 0 0 0 1px rgba(151, 164, 255, .06); }
+
+.wc-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 10px 12px 16px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(120deg, rgba(109, 74, 255, .10), rgba(22, 140, 245, .06));
+}
+.wc-title { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.wc-title strong { font-size: 15px; }
+.wc-title small { color: var(--muted); font-size: 11.5px; }
+.wc-live-dot { flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%; background: #28c78a; box-shadow: 0 0 0 3px rgba(40, 199, 138, .16); }
+
+.wc-chip-btn {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 7px 11px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--card);
+    color: var(--text);
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 650;
+    cursor: pointer;
+}
+.wc-chip-btn:hover, .wc-chip-btn[aria-expanded="true"] { border-color: var(--primary); color: var(--primary); }
+
+.wc-icon-btn {
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+}
+.wc-icon-btn:hover { background: var(--bg); color: var(--text); }
+.wc-icon-btn-sm { width: 28px; height: 28px; }
+
+.wc-panel button:focus-visible,
+.wc-panel input:focus-visible,
+.wc-launcher:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* game invitation form */
+.wc-invite { display: grid; gap: 9px; padding: 12px 14px; border-bottom: 1px solid var(--border); background: var(--bg); }
+.wc-invite-row { display: flex; gap: 8px; }
+.wc-field { display: grid; gap: 4px; min-width: 0; }
+.wc-field span { color: var(--muted); font-size: 11.5px; font-weight: 650; }
+.wc-field em { font-style: normal; font-weight: 500; }
+.wc-field-grow { flex: 1; }
+.wc-field-narrow { width: 82px; flex-shrink: 0; }
+.wc-field input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 9px 11px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--card);
+    color: var(--text);
+    font: inherit;
+    font-size: 14px;
+}
+.wc-invite-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.wc-ghost-btn, .wc-primary-btn {
+    padding: 8px 14px;
+    border-radius: 10px;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+}
+.wc-ghost-btn { border: 1px solid var(--border); background: var(--card); color: var(--text); }
+.wc-primary-btn { border: 0; background: linear-gradient(120deg, #6d4aff, #168cf5); color: #fff; }
+.wc-primary-btn:disabled, .wc-ghost-btn:disabled { opacity: .55; cursor: default; }
+
+/* "new replies to you" tray */
+.wc-replies { max-height: 142px; overflow-y: auto; border-bottom: 1px solid var(--border); background: rgba(109, 74, 255, .07); overscroll-behavior: contain; }
+.wc-replies-head { display: flex; align-items: center; gap: 6px; padding: 8px 14px 4px; color: var(--primary); font-size: 11.5px; font-weight: 800; letter-spacing: .02em; text-transform: uppercase; }
+.wc-reply-row { display: block; width: 100%; padding: 6px 14px 8px; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; }
+.wc-reply-row:hover { background: rgba(109, 74, 255, .08); }
+.wc-reply-row strong { margin-right: 4px; }
+.wc-reply-row .wc-reply-snippet { overflow-wrap: anywhere; }
+.wc-reply-row small { display: block; margin-top: 2px; color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* message list */
+.wc-body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
+.wc-messages { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; overscroll-behavior: contain; }
+
+.wc-status { margin: auto; max-width: 270px; padding: 24px 16px; text-align: center; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.wc-status strong { display: block; margin-bottom: 4px; color: var(--text); font-size: 14px; }
+.wc-status .wc-primary-btn { margin-top: 12px; }
+.wc-spinner { width: 22px; height: 22px; margin: 0 auto 10px; border: 3px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: wc-spin .8s linear infinite; }
+
+.wc-msg {
+    align-self: flex-start;
+    max-width: 90%;
+    box-sizing: border-box;
+    padding: 8px 11px 7px;
+    border: 1px solid var(--border);
+    border-radius: 14px 14px 14px 4px;
+    background: var(--card);
+    font-size: 13.5px;
+    overflow-wrap: anywhere;
+    transition: border-color .6s ease, box-shadow .6s ease;
+}
+.wc-msg.mine {
+    align-self: flex-end;
+    border-radius: 14px 14px 4px 14px;
+    border-color: rgba(109, 74, 255, .30);
+    background: linear-gradient(135deg, rgba(109, 74, 255, .16), rgba(22, 140, 245, .11));
+}
+.wc-msg.is-unread-reply { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(109, 74, 255, .16); }
+.wc-msg.flash { animation: wc-flash 1.4s ease; }
+
+.wc-msg-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 3px; }
+.wc-msg-head strong { font-size: 12.5px; color: var(--primary); }
+.wc-msg.mine .wc-msg-head strong { color: var(--muted); }
+.wc-msg-head time { margin-left: auto; padding-left: 8px; color: var(--muted); font-size: 10.5px; white-space: nowrap; }
+.wc-msg-tag { padding: 1px 7px; border-radius: 999px; background: var(--primary); color: #fff; font-size: 10px; font-weight: 800; letter-spacing: .02em; text-transform: uppercase; }
+.wc-msg-body { white-space: pre-wrap; line-height: 1.42; }
+
+.wc-quote {
+    display: block;
+    width: 100%;
+    margin: 2px 0 6px;
+    padding: 5px 8px;
+    box-sizing: border-box;
+    border: 0;
+    border-left: 3px solid var(--primary);
+    border-radius: 6px;
+    background: rgba(109, 74, 255, .09);
+    color: var(--muted);
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+}
+.wc-quote strong { display: block; color: var(--text); font-size: 11.5px; }
+.wc-quote span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+.wc-msg-actions { display: flex; margin-top: 3px; }
+.wc-reply-btn { display: inline-flex; align-items: center; gap: 4px; padding: 3px 6px 3px 0; border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 11.5px; font-weight: 650; cursor: pointer; opacity: .8; }
+.wc-reply-btn:hover, .wc-reply-btn:focus-visible { color: var(--primary); opacity: 1; }
+
+/* game invitation card inside a message */
+.wc-game { margin-top: 8px; padding: 10px; border: 1px solid rgba(109, 74, 255, .24); border-radius: 12px; background: rgba(109, 74, 255, .07); }
+.wc-game-head { display: flex; align-items: center; gap: 8px; }
+.wc-game-head svg { flex-shrink: 0; color: var(--primary); }
+.wc-game-head strong { flex: 1; min-width: 0; font-size: 13.5px; }
+.wc-state { padding: 2px 8px; border-radius: 999px; background: var(--bg); color: var(--muted); font-size: 10.5px; font-weight: 800; letter-spacing: .03em; text-transform: uppercase; }
+.wc-state.open { background: rgba(40, 199, 138, .16); color: #178a5b; }
+.wc-state.started { background: rgba(22, 140, 245, .16); color: #1673c4; }
+body.dark .wc-state.open { color: #4bdc9f; }
+body.dark .wc-state.started { color: #6cb8ff; }
+.wc-game-meta { margin-top: 5px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.wc-game-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 9px; }
+.wc-game-actions button { padding: 6px 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+.wc-game-actions button.primary { border-color: transparent; background: linear-gradient(120deg, #6d4aff, #168cf5); color: #fff; }
+.wc-game-actions button.subtle { border-color: transparent; background: transparent; color: var(--muted); font-weight: 650; }
+.wc-game-actions button.subtle:hover { color: var(--text); }
+.wc-game-actions button:disabled { opacity: .55; cursor: default; }
+
+.wc-new-pill { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 6px; padding: 7px 13px; border: 0; border-radius: 999px; background: linear-gradient(120deg, #6d4aff, #168cf5); color: #fff; font: inherit; font-size: 12.5px; font-weight: 700; box-shadow: 0 6px 18px rgba(80, 60, 230, .4); cursor: pointer; }
+
+.wc-notice { margin: 0; padding: 0 14px; background: var(--card); color: var(--muted); font-size: 12px; line-height: 1.4; }
+.wc-notice:not(:empty) { padding: 6px 14px; border-top: 1px solid var(--border); }
+.wc-notice[data-kind="error"] { color: var(--danger); }
+.wc-notice[data-kind="ok"] { color: #178a5b; }
+body.dark .wc-notice[data-kind="ok"] { color: #4bdc9f; }
+
+.wc-reply-preview { display: flex; align-items: center; gap: 8px; padding: 7px 8px 7px 14px; border-top: 1px solid var(--border); background: var(--card); color: var(--primary); }
+.wc-reply-preview svg { flex-shrink: 0; }
+.wc-reply-preview-text { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 12px; line-height: 1.3; }
+.wc-reply-preview-text strong { color: var(--text); }
+.wc-reply-preview-text span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+
+.wc-composer { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--border); background: var(--card); }
+.wc-composer input { flex: 1; min-width: 0; padding: 11px 14px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg); color: var(--text); font: inherit; font-size: 14px; }
+.wc-composer input:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 3px rgba(120, 101, 255, .15); }
+.wc-send { flex-shrink: 0; width: 42px; height: 42px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: linear-gradient(120deg, #6d4aff, #168cf5); color: #fff; cursor: pointer; }
+.wc-send:disabled { opacity: .55; cursor: default; }
+
+@keyframes wc-in { from { opacity: 0; transform: translateY(10px) scale(.97); } to { opacity: 1; transform: none; } }
+@keyframes wc-spin { to { transform: rotate(360deg); } }
+@keyframes wc-pop { 0% { transform: scale(.6); } 60% { transform: scale(1.2); } 100% { transform: scale(1); } }
+@keyframes wc-flash { 0%, 100% { box-shadow: 0 0 0 0 rgba(109, 74, 255, 0); } 25% { box-shadow: 0 0 0 4px rgba(109, 74, 255, .35); } }
+
+/* phones and short windows: dock the panel above the bottom nav, nearly full width */
+@media (max-width: 520px), (max-height: 560px) {
+    .wc-panel {
+        left: 8px;
+        right: 8px;
+        bottom: calc(var(--wc-nav) + 8px);
+        width: auto;
+        max-width: none;
+        height: 640px;
+        height: min(640px, calc(100dvh - var(--wc-nav) - 16px - env(safe-area-inset-top, 0px)));
+        min-height: 0;
+        border-radius: 18px;
+    }
+    .wc-root.is-open .wc-launcher { display: none; }   /* the panel's own minimize button closes it */
+    .wc-field input, .wc-composer input { font-size: 16px; }   /* stops iOS zooming on focus */
+    .wc-msg { max-width: 94%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .wc-panel:not(.hidden), .wc-badge.pop, .wc-msg.flash, .wc-spinner { animation: none; }
+    .wc-launcher, .wc-msg { transition: none; }
+}

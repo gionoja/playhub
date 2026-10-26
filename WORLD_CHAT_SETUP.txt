@@ -1,0 +1,10 @@
+VYNQO WORLD CHAT — INTEGRATED UPDATE
+
+World Chat is integrated into the existing conversation window. Direct chat remains the default; World Chat opens only when the user chooses its tab. It includes community messages, game invitations, and Join/Leave actions.
+
+Added: front/world-chat.js, backend/world_chat.py
+Updated: front/index.html, front/style.css, backend/app.py
+
+IMPORTANT: Back up your project first. Keep your existing backend/.env and database. Run the backend with your existing virtual environment and serve/open front/index.html using your existing frontend setup. Log in with two accounts to test. Hard-refresh with Ctrl+Shift+R if old UI remains.
+
+The World Chat blueprint is registered before db.create_all() so its additive tables are created on startup. Existing routes/tables are retained; video-call files are not changed. This archive excludes .git, .env secrets, local database files, and Python caches.

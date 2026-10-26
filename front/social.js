@@ -207,6 +207,8 @@ function onAppOpened() {
         if (typeof onProfileOpened === "function") onProfileOpened();
 
     if (typeof onGamesOpened === "function") onGamesOpened();
+
+    if (typeof onWorldChatOpened === "function") onWorldChatOpened();
 }
 
 function onLoggedOut() {
@@ -220,6 +222,8 @@ function onLoggedOut() {
         if (typeof onProfileClosed === "function") onProfileClosed();
 
     if (typeof onGamesClosed === "function") onGamesClosed();
+
+    if (typeof onWorldChatClosed === "function") onWorldChatClosed();
 
 
 

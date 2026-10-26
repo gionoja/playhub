@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Vynqo — Connect. Play. Share.</title>
-    <link rel="stylesheet" href="style.css?v=10">
+    <link rel="stylesheet" href="style.css?v=11">
 </head>
 
 <body>
@@ -1693,9 +1693,89 @@
 </div>
 
 
+<!-- ================= WORLD CHAT (floating, separate from private Direct Messages) ================= -->
+<div id="worldChatRoot" class="wc-root hidden">
+
+    <section id="worldChatPanel" class="wc-panel hidden" role="dialog" aria-label="World Chat">
+
+        <header class="wc-header">
+            <span class="wc-live-dot" aria-hidden="true"></span>
+            <div class="wc-title">
+                <strong>World Chat</strong>
+                <small>Everyone on Vynqo</small>
+            </div>
+            <button id="worldChatInviteToggle" class="wc-chip-btn" type="button" aria-expanded="false" aria-controls="worldChatInviteForm">
+                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+                Find players
+            </button>
+            <button id="worldChatClose" class="wc-icon-btn" type="button" aria-label="Minimize World Chat" title="Minimize">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+        </header>
+
+        <form id="worldChatInviteForm" class="wc-invite hidden" autocomplete="off">
+            <div class="wc-invite-row">
+                <label class="wc-field wc-field-grow">
+                    <span>Game</span>
+                    <input id="worldChatInviteGame" type="text" maxlength="80" list="worldChatGameList" placeholder="Ludo, Snooker…" required>
+                    <datalist id="worldChatGameList"><option value="Ludo"><option value="Snooker"></datalist>
+                </label>
+                <label class="wc-field wc-field-narrow">
+                    <span>Players</span>
+                    <input id="worldChatInviteMax" type="number" min="2" max="100" value="4" inputmode="numeric" required>
+                </label>
+            </div>
+            <label class="wc-field">
+                <span>Details <em>(optional)</em></span>
+                <input id="worldChatInviteDetails" type="text" maxlength="500" placeholder="Skill level, rules, when…">
+            </label>
+            <div class="wc-invite-actions">
+                <button id="worldChatInviteCancel" class="wc-ghost-btn" type="button">Cancel</button>
+                <button id="worldChatInviteSubmit" class="wc-primary-btn" type="submit">Post invitation</button>
+            </div>
+        </form>
+
+        <div id="worldChatReplies" class="wc-replies hidden" aria-label="New replies to you"></div>
+
+        <div class="wc-body">
+            <div id="worldChatMessages" class="wc-messages" aria-live="polite"></div>
+            <button id="worldChatNewPill" class="wc-new-pill hidden" type="button">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>
+                New messages
+            </button>
+        </div>
+
+        <p id="worldChatNotice" class="wc-notice" role="status"></p>
+
+        <div id="worldChatReplyPreview" class="wc-reply-preview hidden">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>
+            <div class="wc-reply-preview-text"><strong id="worldChatReplyName"></strong><span id="worldChatReplyText"></span></div>
+            <button id="worldChatReplyCancel" class="wc-icon-btn wc-icon-btn-sm" type="button" aria-label="Cancel reply">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            </button>
+        </div>
+
+        <form id="worldChatComposer" class="wc-composer" autocomplete="off">
+            <input id="worldChatInput" type="text" maxlength="2000" placeholder="Message the community…" aria-label="World Chat message" required>
+            <button id="worldChatSend" class="wc-send" type="submit" aria-label="Send to World Chat">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+            </button>
+        </form>
+
+    </section>
+
+    <button id="worldChatLauncher" class="wc-launcher" type="button" aria-label="Open World Chat" aria-expanded="false" aria-controls="worldChatPanel">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>
+        <span id="worldChatBadge" class="wc-badge hidden" aria-hidden="true">0</span>
+    </button>
+
+</div>
+
+
 <script src="app.js?v=9"></script>
-<script src="social.js?v=10"></script>
+<script src="social.js?v=11"></script>
 <script src="messages.js?v=11"></script>
+<script src="world-chat.js?v=2"></script>
 <script src="feed.js?v=9"></script>
 <script src="profile.js?v=9"></script>
 <script src="pool.js?v=9"></script>
