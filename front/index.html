@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Vynqo — Connect. Play. Share.</title>
-    <link rel="stylesheet" href="style.css?v=11">
+    <link rel="stylesheet" href="style.css?v=12">
 </head>
 
 <body>
@@ -1344,6 +1344,47 @@
 </div>
 
 
+<div id="privacyCenterModal" class="modal hidden">
+  <div class="modal-content privacy-center-content">
+    <div class="modal-header">
+      <button class="privacy-back-btn" id="privacyCenterBack" onclick="privacyCenterBack()" aria-label="Back" style="display:none">←</button>
+      <h2 id="privacyCenterTitle">Privacy &amp; Account</h2>
+      <button onclick="closeModal('privacyCenterModal')" aria-label="Close">×</button>
+    </div>
+    <p class="auth-help" id="privacyCenterIntro">Manage your account, visibility, interactions and safety in one place.</p>
+    <div id="privacyCenterHome" class="privacy-center-list">
+      <div class="privacy-center-group"><h3>Account</h3>
+        <button onclick="closeModal('privacyCenterModal'); changeName()"><span><strong>Change name</strong><small>Update your display name</small></span><b>›</b></button>
+        <button onclick="closeModal('privacyCenterModal'); changePassword()"><span><strong>Change password</strong><small>Keep your account secure</small></span><b>›</b></button>
+        <button onclick="closeModal('privacyCenterModal'); changeProfilePhoto()"><span><strong>Profile photo</strong><small>Update your profile picture</small></span><b>›</b></button>
+      </div>
+      <div class="privacy-center-group"><h3>Privacy</h3>
+        <button onclick="privacyCenterOpen('visibility')"><span><strong>Profile visibility</strong><small>Choose who can see your email, friends and profile info</small></span><b>›</b></button>
+        <button onclick="privacyCenterOpen('blocked')"><span><strong>Blocked people</strong><small>View and unblock accounts you have blocked</small></span><b>›</b></button>
+        <button onclick="privacyCenterOpen('safety')"><span><strong>Safety and interactions</strong><small>Understand controls for messages, posts and connections</small></span><b>›</b></button>
+      </div>
+      <div class="privacy-center-group"><h3>Account security &amp; data</h3>
+        <button onclick="privacyCenterOpen('security')"><span><strong>Account security</strong><small>Password and account protection</small></span><b>›</b></button>
+        <button onclick="privacyCenterOpen('data')"><span><strong>Your data</strong><small>Account data and content controls</small></span><b>›</b></button>
+      </div>
+    </div>
+    <div id="privacyCenterSubpage" class="hidden">
+      <div id="privacyCenterVisibility" class="hidden">
+        <p class="auth-help">Choose who can see your information. Email is private by default.</p>
+        <div class="priv-row"><label for="privEmail">Who can see my email</label><select id="privEmail"><option value="only_me">Only me</option><option value="friends">Friends</option><option value="everyone">Everyone</option></select></div>
+        <div class="priv-row"><label for="privFriends">Who can see my friends list</label><select id="privFriends"><option value="everyone">Everyone</option><option value="friends">Friends</option><option value="only_me">Only me</option></select></div>
+        <div class="priv-row"><label for="privInfo">Who can see my bio and join date</label><select id="privInfo"><option value="everyone">Everyone</option><option value="friends">Friends</option><option value="only_me">Only me</option></select></div>
+        <p class="auth-help">Posts and stories continue to follow the sharing rules already implemented in Vynqo.</p>
+        <p id="privacyMsg" class="form-msg hidden" role="alert"></p><button id="privacySave" class="primary-btn" onclick="savePrivacy()">Save changes</button>
+      </div>
+      <div id="privacyCenterBlocked" class="hidden"><p class="auth-help">People you block cannot message you or interact with you through supported Vynqo features. Unblocking does not automatically restore a friendship.</p><div id="blockedUsersList" class="blocked-users-list"><p class="auth-help">Loading blocked people…</p></div></div>
+      <div id="privacyCenterSafety" class="hidden"><h3>Interactions</h3><p class="auth-help">Blocking someone is available from their private chat. Existing block controls remain active. Review friend requests and only accept people you trust.</p><h3>Sharing reminder</h3><p class="auth-help">Avoid sharing passwords, verification codes, financial details or private contact information in posts and chats.</p></div>
+      <div id="privacyCenterSecurity" class="hidden"><h3>Keep your account safe</h3><p class="auth-help">Use a unique password and never share it. Vynqo currently supports changing your password. Two-factor authentication, login history and device management are not yet available, so this page does not show fake switches for them.</p><button class="secondary-btn" onclick="closeModal('privacyCenterModal'); changePassword()">Change password</button></div>
+      <div id="privacyCenterData" class="hidden"><h3>Your account data</h3><p class="auth-help">Your profile, posts, messages and uploads are stored by Vynqo to provide the app's features. Data export and self-service account deletion are not currently available in this version.</p></div>
+    </div>
+  </div>
+</div>
+
 <div id="privacyModal" class="modal hidden">
 
     <div class="modal-content">
@@ -1777,7 +1818,7 @@
 <script src="messages.js?v=11"></script>
 <script src="world-chat.js?v=2"></script>
 <script src="feed.js?v=9"></script>
-<script src="profile.js?v=9"></script>
+<script src="profile.js?v=10"></script>
 <script src="pool.js?v=9"></script>
 
 </body>

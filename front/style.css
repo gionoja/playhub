@@ -4286,3 +4286,22 @@ body.dark .wc-notice[data-kind="ok"] { color: #4bdc9f; }
     .wc-panel:not(.hidden), .wc-badge.pop, .wc-msg.flash, .wc-spinner { animation: none; }
     .wc-launcher, .wc-msg { transition: none; }
 }
+
+
+/* Privacy & Account center */
+.privacy-center-content { width: min(560px, 94vw); max-height: 88vh; overflow-y: auto; }
+.privacy-center-content .modal-header { gap: 12px; }
+.privacy-back-btn { border: 0; background: transparent; color: inherit; font-size: 26px; cursor: pointer; padding: 4px 10px; }
+.privacy-center-list { display: grid; gap: 20px; }
+.privacy-center-group { border: 1px solid var(--border, rgba(128,128,128,.2)); border-radius: 14px; padding: 12px; }
+.privacy-center-group h3 { margin: 4px 8px 10px; font-size: 13px; opacity: .7; text-transform: uppercase; letter-spacing: .05em; }
+.privacy-center-group button { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 16px; text-align: left; border: 0; border-radius: 10px; padding: 13px 9px; background: transparent; color: inherit; cursor: pointer; }
+.privacy-center-group button:hover { background: rgba(128,128,128,.09); }
+.privacy-center-group button span { display: grid; gap: 4px; }
+.privacy-center-group button small, .blocked-user-row small { opacity: .65; font-size: 12px; }
+.privacy-center-group button b { font-size: 23px; opacity: .55; font-weight: 400; }
+.blocked-users-list { display: grid; gap: 10px; }
+.blocked-user-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; border: 1px solid var(--border, rgba(128,128,128,.2)); border-radius: 12px; }
+.blocked-user-row > div { display: grid; gap: 4px; min-width: 0; }
+.blocked-user-row .secondary-btn { flex: 0 0 auto; }
+@media (max-width: 520px) { .privacy-center-content { width: 96vw; padding: 18px; } .blocked-user-row { align-items: flex-start; } }

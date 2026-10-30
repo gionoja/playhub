@@ -340,27 +340,68 @@ async function saveName() {
 /* ============================== privacy ============================ */
 
 async function openPrivacySettings() {
+    document.getElementById("privacyCenterModal").classList.remove("hidden");
+    privacyCenterShowHome();
+}
 
-    document.getElementById("privacyModal").classList.remove("hidden");
+function privacyCenterShowHome() {
+    document.getElementById("privacyCenterHome").classList.remove("hidden");
+    document.getElementById("privacyCenterSubpage").classList.add("hidden");
+    document.getElementById("privacyCenterBack").style.display = "none";
+    document.getElementById("privacyCenterTitle").textContent = "Privacy & Account";
+    document.getElementById("privacyCenterIntro").classList.remove("hidden");
+}
 
+function privacyCenterBack() { privacyCenterShowHome(); }
+
+async function privacyCenterOpen(page) {
+    document.getElementById("privacyCenterHome").classList.add("hidden");
+    document.getElementById("privacyCenterSubpage").classList.remove("hidden");
+    document.getElementById("privacyCenterBack").style.display = "inline-flex";
+    document.getElementById("privacyCenterIntro").classList.add("hidden");
+    const pages = {visibility:"Profile visibility", blocked:"Blocked people", safety:"Safety and interactions", security:"Account security", data:"Your data"};
+    document.getElementById("privacyCenterTitle").textContent = pages[page] || "Privacy & Account";
+    ["visibility","blocked","safety","security","data"].forEach(name => document.getElementById("privacyCenter" + name[0].toUpperCase() + name.slice(1)).classList.toggle("hidden", name !== page));
+    if (page === "visibility") await loadPrivacyVisibility();
+    if (page === "blocked") await loadBlockedUsers();
+}
+
+async function loadPrivacyVisibility() {
     const save = document.getElementById("privacySave");
-
-    save.disabled = true;
-    setMsg("privacyMsg", "Loading your settings...", "info");
-
+    save.disabled = true; setMsg("privacyMsg", "Loading your settings...", "info");
     try {
         const p = await api("/me/privacy");
-
         document.getElementById("privEmail").value = p.email_visibility;
         document.getElementById("privFriends").value = p.friends_visibility;
         document.getElementById("privInfo").value = p.info_visibility;
+        setMsg("privacyMsg", ""); save.disabled = false;
+    } catch (error) { setMsg("privacyMsg", error.message, "error"); }
+}
 
-        setMsg("privacyMsg", "");
-        save.disabled = false;
-
-    } catch (error) {
-        setMsg("privacyMsg", error.message, "error");
-    }
+async function loadBlockedUsers() {
+    const list = document.getElementById("blockedUsersList");
+    list.innerHTML = '<p class="auth-help">Loading blocked people…</p>';
+    try {
+        const result = await api("/me/blocked-users");
+        const users = result.blocked_users || [];
+        if (!users.length) { list.innerHTML = '<p class="auth-help">You have not blocked anyone.</p>'; return; }
+        list.replaceChildren();
+        users.forEach(user => {
+            const row = document.createElement("div"); row.className = "blocked-user-row";
+            const info = document.createElement("div");
+            const name = document.createElement("strong"); name.textContent = user.full_name || user.username;
+            const handle = document.createElement("small"); handle.textContent = "@" + user.username;
+            info.append(name, handle);
+            const btn = document.createElement("button"); btn.className = "secondary-btn"; btn.textContent = "Unblock";
+            btn.addEventListener("click", async () => {
+                if (!confirm("Unblock @" + user.username + "? This will not automatically restore your friendship.")) return;
+                btn.disabled = true;
+                try { await api("/users/" + encodeURIComponent(user.username) + "/block", {method:"DELETE"}); showToast("User unblocked"); await loadBlockedUsers(); }
+                catch (error) { btn.disabled = false; showToast(error.message); }
+            });
+            row.append(info, btn); list.append(row);
+        });
+    } catch (error) { list.textContent = error.message || "Could not load blocked people."; }
 }
 
 async function savePrivacy() {
@@ -378,7 +419,6 @@ async function savePrivacy() {
             }
         });
 
-        closeModal("privacyModal");
         showToast("Privacy settings saved");
 
     } catch (error) {
