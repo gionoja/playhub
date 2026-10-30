@@ -13,7 +13,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from auth import create_token, login_required
 from database import db
 from email_service import send_reset_code_email
-from models import PasswordReset, PrivacySetting, Profile, User
+from models import PasswordReset, PrivacySetting, Profile, User, UserBlock
 from profiles import avatar_url
 from signing import verified_viewer
 from uploads import (
@@ -76,6 +76,27 @@ def get_privacy(user_id):
         "friends_visibility": row.friends_visibility if row else "everyone",
         "info_visibility": row.info_visibility if row else "everyone",
     }
+
+
+
+
+@accounts_bp.route("/me/blocked-users", methods=["GET"])
+@login_required
+def list_blocked_users():
+    """Return accounts blocked by the current user for Privacy settings."""
+    blocks = UserBlock.query.filter_by(blocker_id=g.user.id).order_by(
+        UserBlock.created_at.desc()
+    ).all()
+    blocked_ids = [row.blocked_id for row in blocks]
+    users = User.query.filter(User.id.in_(blocked_ids)).all() if blocked_ids else []
+    by_id = {user.id: user for user in users}
+    return jsonify({
+        "blocked_users": [
+            {"username": by_id[row.blocked_id].username,
+             "full_name": by_id[row.blocked_id].full_name}
+            for row in blocks if row.blocked_id in by_id
+        ]
+    })
 
 
 # ------------------------------------------------------------ edit profile
