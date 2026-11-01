@@ -16,7 +16,7 @@ from flask_mail import Mail
 
 from database import db
 
-from models import User, Profile, delete_user_completely, ensure_columns
+from models import User, Profile, LoginActivity, delete_user_completely, ensure_columns
 
 from email_service import mail, send_verification_email
 from admin import admin_bp
@@ -226,6 +226,18 @@ def avatar_url_for_login(user):
     return avatar_url(user.id)
 
 
+def record_login_activity(user_id, event, success):
+    try:
+        db.session.add(LoginActivity(
+            user_id=user_id, event=event, success=success,
+            ip_address=(request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip())[:64],
+            user_agent=request.headers.get("User-Agent", "")[:500],
+        ))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+
 @app.route("/login", methods=["POST"])
 def login():
 
@@ -242,6 +254,8 @@ def login():
     user = User.query.filter_by(email=email).first()
 
     if not user or not check_password_hash(user.password_hash, password):
+        if user:
+            record_login_activity(user.id, "login_failed", False)
         return jsonify({
             "message": "Invalid email or password"
         }), 401
@@ -252,6 +266,7 @@ def login():
             "code": "email_not_verified"
         }), 403
 
+    record_login_activity(user.id, "login_success", True)
     return jsonify({
         "message": "Login successful",
         "token": create_token(user),

@@ -44,6 +44,29 @@ class User(db.Model):
     )
 
 
+class AuthSession(db.Model):
+    """Revocable server-side login session for one browser/device."""
+    id = db.Column(db.String(36), primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    last_seen = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    user_agent = db.Column(db.String(500), nullable=False, default="")
+    ip_address = db.Column(db.String(64), nullable=False, default="")
+    revoked_at = db.Column(db.DateTime, nullable=True)
+
+
+class LoginActivity(db.Model):
+    """Security audit trail. Never stores passwords or authentication tokens."""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+    event = db.Column(db.String(40), nullable=False)
+    success = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    ip_address = db.Column(db.String(64), nullable=False, default="")
+    user_agent = db.Column(db.String(500), nullable=False, default="")
+
+
 class Profile(db.Model):
     """One public profile per account. Created automatically at signup."""
 
@@ -686,6 +709,10 @@ def delete_user_completely(user):
         delete_upload_files([s.image_filename for s in stories], STORY_DIR)
 
     StoryView.query.filter_by(viewer_id=uid).delete(synchronize_session=False)
+
+    # Their authentication sessions and security audit history
+    AuthSession.query.filter_by(user_id=uid).delete(synchronize_session=False)
+    LoginActivity.query.filter_by(user_id=uid).delete(synchronize_session=False)
 
     # Their game challenges, matches and shots
     GameChallenge.query.filter(

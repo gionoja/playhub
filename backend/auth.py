@@ -1,13 +1,13 @@
 """Login tokens. The browser sends:  Authorization: Bearer <token>"""
 import hashlib
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
 
-from flask import current_app, g, jsonify, request
+from flask import current_app, g, has_request_context, jsonify, request
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 from database import db
-from models import Profile, User
+from models import AuthSession, Profile, User
 
 TOKEN_MAX_AGE = 60 * 60 * 24 * 30  # 30 days
 
@@ -24,7 +24,19 @@ def _password_stamp(user):
 
 
 def create_token(user):
-    return _serializer().dumps({"uid": user.id, "pv": _password_stamp(user)})
+    session_id = __import__("uuid").uuid4().hex
+    now = datetime.utcnow()
+    user_agent = request.headers.get("User-Agent", "") if has_request_context() else ""
+    remote_ip = (request.headers.get("X-Forwarded-For", request.remote_addr or "") if has_request_context() else "")
+    session = AuthSession(
+        id=session_id, user_id=user.id, created_at=now, last_seen=now,
+        expires_at=now + timedelta(seconds=TOKEN_MAX_AGE),
+        user_agent=user_agent[:500],
+        ip_address=remote_ip.split(",")[0].strip()[:64],
+    )
+    db.session.add(session)
+    db.session.commit()
+    return _serializer().dumps({"uid": user.id, "pv": _password_stamp(user), "sid": session_id})
 
 
 def _unauthorized():
@@ -50,16 +62,24 @@ def login_required(view):
             return _unauthorized()
 
         user = db.session.get(User, payload.get("uid"))
+        session = db.session.get(AuthSession, payload.get("sid"))
+        now = datetime.utcnow()
 
         if (
-            not user
-            or not user.email_verified
+            not user or not user.email_verified
             or payload.get("pv") != _password_stamp(user)
+            or not session or session.user_id != user.id
+            or session.revoked_at is not None or session.expires_at < now
         ):
             return _unauthorized()
 
         g.user = user
         g.me_id = user.id
+        g.session_id = session.id
+        if (now - session.last_seen).total_seconds() > 60:
+            session.last_seen = now
+            session.ip_address = (request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip())[:64]
+            db.session.commit()
 
         # Remember when they were last active (at most once a minute)
         profile = Profile.query.filter_by(user_id=user.id).first()

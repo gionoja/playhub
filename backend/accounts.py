@@ -13,7 +13,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from auth import create_token, login_required
 from database import db
 from email_service import send_reset_code_email
-from models import PasswordReset, PrivacySetting, Profile, User, UserBlock
+from models import AuthSession, LoginActivity, PasswordReset, PrivacySetting, Profile, User, UserBlock
 from profiles import avatar_url
 from signing import verified_viewer
 from uploads import (
@@ -252,9 +252,12 @@ def change_password():
         return _error("Choose a password you haven't used just now", 400)
 
     g.user.password_hash = generate_password_hash(new)
+    AuthSession.query.filter_by(user_id=g.me_id, revoked_at=None).update(
+        {"revoked_at": datetime.utcnow()}, synchronize_session=False
+    )
     db.session.commit()
 
-    # every older login stops working; this one keeps going with a fresh token
+    # Password change revokes every previous device; issue one fresh session here.
     return jsonify({"message": "Password updated", "token": create_token(g.user)})
 
 
@@ -387,3 +390,88 @@ def reset_password():
     db.session.commit()
 
     return jsonify({"message": "Password updated. You can log in now."})
+
+# ---------------------------------------------------------- security centre
+
+def _security_device(session):
+    ua = session.user_agent or "Unknown device"
+    lower = ua.lower()
+    if "edg/" in lower: browser = "Microsoft Edge"
+    elif "opr/" in lower or "opera" in lower: browser = "Opera"
+    elif "firefox/" in lower: browser = "Firefox"
+    elif "chrome/" in lower: browser = "Chrome"
+    elif "safari/" in lower: browser = "Safari"
+    else: browser = "Unknown browser"
+    if "android" in lower: platform = "Android"
+    elif "iphone" in lower or "ipad" in lower: platform = "iOS"
+    elif "windows" in lower: platform = "Windows"
+    elif "mac os" in lower or "macintosh" in lower: platform = "macOS"
+    elif "linux" in lower: platform = "Linux"
+    else: platform = "Unknown device"
+    return {"id": session.id, "browser": browser, "platform": platform,
+            "ip_address": session.ip_address, "created_at": session.created_at.isoformat() + "Z",
+            "last_seen": session.last_seen.isoformat() + "Z", "current": session.id == g.session_id}
+
+
+@accounts_bp.route("/me/security", methods=["GET"])
+@login_required
+def security_overview():
+    now = datetime.utcnow()
+    sessions = AuthSession.query.filter_by(user_id=g.me_id, revoked_at=None).filter(
+        AuthSession.expires_at > now
+    ).order_by(AuthSession.last_seen.desc()).all()
+    activity = LoginActivity.query.filter_by(user_id=g.me_id).order_by(
+        LoginActivity.created_at.desc()
+    ).limit(30).all()
+    return jsonify({
+        "email_verified": bool(g.user.email_verified),
+        "two_factor_enabled": False,
+        "sessions": [_security_device(item) for item in sessions],
+        "activity": [{"event": item.event, "success": item.success,
+                      "ip_address": item.ip_address,
+                      "created_at": item.created_at.isoformat() + "Z"}
+                     for item in activity],
+    })
+
+
+@accounts_bp.route("/me/security/sessions/<session_id>", methods=["DELETE"])
+@login_required
+def revoke_security_session(session_id):
+    session = AuthSession.query.filter_by(id=session_id, user_id=g.me_id, revoked_at=None).first()
+    if not session:
+        return _error("That session was not found or has already been signed out", 404)
+    session.revoked_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({"message": "Device signed out"})
+
+
+@accounts_bp.route("/me/security/sessions/logout-others", methods=["POST"])
+@login_required
+def revoke_other_security_sessions():
+    count = AuthSession.query.filter(
+        AuthSession.user_id == g.me_id,
+        AuthSession.id != g.session_id,
+        AuthSession.revoked_at.is_(None),
+    ).update({"revoked_at": datetime.utcnow()}, synchronize_session=False)
+    db.session.commit()
+    return jsonify({"message": "Other devices signed out", "count": count})
+
+
+@accounts_bp.route("/me/security/logout-all", methods=["POST"])
+@login_required
+def revoke_all_security_sessions():
+    AuthSession.query.filter_by(user_id=g.me_id, revoked_at=None).update(
+        {"revoked_at": datetime.utcnow()}, synchronize_session=False
+    )
+    db.session.commit()
+    return jsonify({"message": "All sessions signed out. Please log in again."})
+
+
+@accounts_bp.route("/me/security/logout-current", methods=["POST"])
+@login_required
+def revoke_current_security_session():
+    session = db.session.get(AuthSession, g.session_id)
+    if session and session.revoked_at is None:
+        session.revoked_at = datetime.utcnow()
+        db.session.commit()
+    return jsonify({"message": "This device has been signed out"})
