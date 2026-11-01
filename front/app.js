@@ -229,8 +229,17 @@ function openApp() {
 }
 
 
-function logout() {
+async function logout() {
 
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (token) {
+        try {
+            await fetch(API_URL + "/me/security/logout-current", {
+                method: "POST",
+                headers: { "Authorization": "Bearer " + token }
+            });
+        } catch (_) { /* local sign-out still works when the server is unreachable */ }
+    }
     localStorage.removeItem(TOKEN_KEY);
 
     if (typeof onLoggedOut === "function") onLoggedOut();

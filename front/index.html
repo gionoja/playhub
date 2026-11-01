@@ -600,7 +600,7 @@
                 </button>
 
 
-                <button onclick="showToast('Security settings coming soon')">
+                <button onclick="openSecuritySettings()">
                     <span><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
 
                     <div>
@@ -1344,6 +1344,17 @@
 </div>
 
 
+<div id="securityModal" class="modal hidden">
+  <div class="modal-content security-modal-content">
+    <div class="modal-header"><div><h2>Security &amp; Login</h2><p>Protect your Vynqo account and manage signed-in devices.</p></div><button onclick="closeModal('securityModal')" aria-label="Close">✕</button></div>
+    <div id="securitySummary" class="security-summary">Loading your security overview…</div>
+    <section class="security-section"><div class="security-section-heading"><div><h3>Where you're logged in</h3><p>Review devices with access to your account.</p></div><button class="secondary-btn" onclick="logoutOtherDevices()">Log out other devices</button></div><div id="securitySessions" class="security-list"></div></section>
+    <section class="security-section"><div class="security-section-heading"><div><h3>Recent login activity</h3><p>Successful and unsuccessful sign-in attempts.</p></div></div><div id="securityActivity" class="security-list"></div></section>
+    <section class="security-section security-notice"><h3>More account protection</h3><p><strong>Two-factor authentication:</strong> Not enabled yet. Authenticator-app setup and recovery codes are not included in this release.</p><p><strong>Account recovery:</strong> Use the existing Forgot password flow on the login screen. Keep your verified email account secure.</p><p><strong>Passkeys and login approval:</strong> Not available yet; no inactive controls are shown as enabled.</p></section>
+    <div class="security-footer"><button class="danger-btn" onclick="logoutAllDevices()">Log out of all devices</button><button class="secondary-btn" onclick="loadSecuritySettings()">Refresh activity</button></div><p id="securityMsg" class="form-msg" aria-live="polite"></p>
+  </div>
+</div>
+
 <div id="privacyCenterModal" class="modal hidden">
   <div class="modal-content privacy-center-content">
     <div class="modal-header">
@@ -1379,66 +1390,11 @@
       </div>
       <div id="privacyCenterBlocked" class="hidden"><p class="auth-help">People you block cannot message you or interact with you through supported Vynqo features. Unblocking does not automatically restore a friendship.</p><div id="blockedUsersList" class="blocked-users-list"><p class="auth-help">Loading blocked people…</p></div></div>
       <div id="privacyCenterSafety" class="hidden"><h3>Interactions</h3><p class="auth-help">Blocking someone is available from their private chat. Existing block controls remain active. Review friend requests and only accept people you trust.</p><h3>Sharing reminder</h3><p class="auth-help">Avoid sharing passwords, verification codes, financial details or private contact information in posts and chats.</p></div>
-      <div id="privacyCenterSecurity" class="hidden"><h3>Keep your account safe</h3><p class="auth-help">Use a unique password and never share it. Vynqo currently supports changing your password. Two-factor authentication, login history and device management are not yet available, so this page does not show fake switches for them.</p><button class="secondary-btn" onclick="closeModal('privacyCenterModal'); changePassword()">Change password</button></div>
+      <div id="privacyCenterSecurity" class="hidden"><h3>Keep your account safe</h3><p class="auth-help">Review active devices, login history and account protection settings.</p><button class="secondary-btn" onclick="closeModal('privacyCenterModal'); openSecuritySettings()">Open Security &amp; Login</button></div>
       <div id="privacyCenterData" class="hidden"><h3>Your account data</h3><p class="auth-help">Your profile, posts, messages and uploads are stored by Vynqo to provide the app's features. Data export and self-service account deletion are not currently available in this version.</p></div>
     </div>
   </div>
 </div>
-
-<div id="privacyModal" class="modal hidden">
-
-    <div class="modal-content">
-
-        <div class="modal-header">
-
-            <h2>Privacy</h2>
-
-            <button onclick="closeModal('privacyModal')" aria-label="Close"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
-
-        </div>
-
-        <p class="auth-help">
-            Choose who can see your information. Your email is private unless you change it.
-            You can always see everything on your own profile.
-        </p>
-
-        <div class="priv-row">
-            <label for="privEmail">Who can see my email</label>
-            <select id="privEmail">
-                <option value="only_me">Only me</option>
-                <option value="friends">Friends</option>
-                <option value="everyone">Everyone</option>
-            </select>
-        </div>
-
-        <div class="priv-row">
-            <label for="privFriends">Who can see my friends list</label>
-            <select id="privFriends">
-                <option value="everyone">Everyone</option>
-                <option value="friends">Friends</option>
-                <option value="only_me">Only me</option>
-            </select>
-        </div>
-
-        <div class="priv-row">
-            <label for="privInfo">Who can see my bio and join date</label>
-            <select id="privInfo">
-                <option value="everyone">Everyone</option>
-                <option value="friends">Friends</option>
-                <option value="only_me">Only me</option>
-            </select>
-        </div>
-
-        <p class="auth-help">Your posts and stories are always shared with friends only.</p>
-
-        <p id="privacyMsg" class="form-msg hidden" role="alert"></p>
-
-        <button id="privacySave" class="primary-btn" onclick="savePrivacy()">Save</button>
-
-    </div>
-
-</div>
-
 
 <div id="poolLobbyModal" class="modal hidden">
 
@@ -1813,7 +1769,7 @@
 </div>
 
 
-<script src="app.js?v=9"></script>
+<script src="app.js?v=10"></script>
 <script src="social.js?v=11"></script>
 <script src="messages.js?v=11"></script>
 <script src="world-chat.js?v=2"></script>

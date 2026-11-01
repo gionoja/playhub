@@ -4305,3 +4305,29 @@ body.dark .wc-notice[data-kind="ok"] { color: #4bdc9f; }
 .blocked-user-row > div { display: grid; gap: 4px; min-width: 0; }
 .blocked-user-row .secondary-btn { flex: 0 0 auto; }
 @media (max-width: 520px) { .privacy-center-content { width: 96vw; padding: 18px; } .blocked-user-row { align-items: flex-start; } }
+
+
+/* ================= Vynqo Security Centre ================= */
+.security-modal-content { width: min(720px, calc(100vw - 28px)); max-height: 88vh; overflow-y: auto; }
+.security-modal-content .modal-header p, .security-section-heading p { color: var(--muted, #8b8b96); margin: 5px 0 0; font-size: 13px; }
+.security-summary { background: rgba(40, 180, 120, .09); border: 1px solid rgba(40, 180, 120, .22); border-radius: 14px; padding: 15px; margin: 16px 0 20px; }
+.security-status-row { display:flex; align-items:center; gap:12px; }
+.security-status-row strong, .security-device strong, .security-activity-row strong { display:block; font-size:14px; }
+.security-status-row small, .security-device small, .security-activity-row small { display:block; color:var(--muted, #888); font-size:12px; margin-top:4px; overflow-wrap:anywhere; }
+.security-status-icon { display:grid; place-items:center; width:34px; height:34px; flex:0 0 34px; border-radius:50%; background:rgba(40,180,120,.16); color:#20a66b; font-weight:800; }
+.security-section { margin:20px 0; }
+.security-section-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; }
+.security-section-heading h3, .security-notice h3 { margin:0; font-size:15px; }
+.security-section-heading button, .security-footer button { flex-shrink:0; }
+.security-device, .security-activity-row { display:flex; justify-content:space-between; align-items:center; gap:14px; padding:13px 2px; border-bottom:1px solid var(--border, rgba(130,130,140,.2)); }
+.security-current { display:inline-block; margin-left:6px; border-radius:20px; padding:3px 7px; font-size:10px; color:#138a5a; background:rgba(40,180,120,.12); vertical-align:middle; }
+.danger-text-btn { border:0; background:transparent; color:#dc4c55; font-weight:650; cursor:pointer; padding:8px; }
+.security-activity-row { justify-content:flex-start; }
+.security-activity-dot { width:9px; height:9px; border-radius:50%; flex:0 0 9px; background:#dc4c55; }
+.security-activity-dot.is-success { background:#20a66b; }
+.security-empty { color:var(--muted, #888); font-size:13px; padding:8px 0; }
+.security-notice { border:1px solid var(--border, rgba(130,130,140,.2)); border-radius:13px; padding:14px; background:rgba(130,130,140,.05); }
+.security-notice p { color:var(--muted, #888); font-size:12px; line-height:1.55; margin:9px 0 0; }
+.security-footer { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-top:20px; }
+.danger-btn { border:1px solid rgba(220,76,85,.35); background:rgba(220,76,85,.1); color:#dc4c55; border-radius:9px; padding:10px 13px; font-weight:650; cursor:pointer; }
+@media (max-width:560px) { .security-section-heading { align-items:flex-start; flex-direction:column; } .security-device { align-items:flex-start; } .security-footer { flex-direction:column; align-items:stretch; } .security-footer button { width:100%; } }

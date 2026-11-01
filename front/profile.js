@@ -143,7 +143,7 @@ function onProfileClosed() {
 
     stopResendTimer();
 
-    ["editProfileModal", "privacyModal", "passwordModal", "nameModal"].forEach(closeModal);
+    ["editProfileModal", "privacyCenterModal", "securityModal", "passwordModal", "nameModal"].forEach(closeModal);
 
     Object.assign(currentUser, {
         bio: "", avatar_url: null, friends_count: null, posts_count: null
@@ -628,4 +628,94 @@ function backToLoginAfterReset() {
     document.getElementById("loginEmail").value = resetEmail;
     document.getElementById("loginPassword").value = "";
     document.getElementById("loginPassword").focus();
+}
+
+/* ========================== security centre ======================== */
+
+async function openSecuritySettings() {
+    document.getElementById("securityModal").classList.remove("hidden");
+    await loadSecuritySettings();
+}
+
+function securityDate(value) {
+    if (!value) return "Unknown";
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? "Unknown" : date.toLocaleString();
+}
+
+async function loadSecuritySettings() {
+    const summary = document.getElementById("securitySummary");
+    const sessionsBox = document.getElementById("securitySessions");
+    const activityBox = document.getElementById("securityActivity");
+    summary.textContent = "Loading security status…";
+    sessionsBox.innerHTML = "";
+    activityBox.innerHTML = "";
+    try {
+        const data = await api("/me/security");
+        summary.innerHTML = `<div class="security-status-row"><span class="security-status-icon">✓</span><div><strong>${data.email_verified ? "Email verified" : "Email not verified"}</strong><small>${data.sessions.length} active session${data.sessions.length === 1 ? "" : "s"} · Two-factor authentication ${data.two_factor_enabled ? "enabled" : "not enabled"}</small></div></div>`;
+        if (!data.sessions.length) sessionsBox.innerHTML = '<p class="security-empty">No active sessions were found.</p>';
+        data.sessions.forEach(item => {
+            const card = document.createElement("div");
+            card.className = "security-device";
+            const details = document.createElement("div");
+            details.innerHTML = `<strong>${item.browser} on ${item.platform} ${item.current ? '<span class="security-current">This device</span>' : ''}</strong><small>IP: ${escapeSecurityText(item.ip_address || "Unavailable")} · Last active: ${securityDate(item.last_seen)}</small><small>Signed in: ${securityDate(item.created_at)}</small>`;
+            card.appendChild(details);
+            if (!item.current) {
+                const btn = document.createElement("button");
+                btn.className = "danger-text-btn";
+                btn.textContent = "Sign out";
+                btn.onclick = () => revokeSecurityDevice(item.id);
+                card.appendChild(btn);
+            }
+            sessionsBox.appendChild(card);
+        });
+        if (!data.activity.length) activityBox.innerHTML = '<p class="security-empty">No login activity recorded yet.</p>';
+        data.activity.forEach(item => {
+            const row = document.createElement("div");
+            row.className = "security-activity-row";
+            const label = item.event === "login_success" ? "Successful login" : "Unsuccessful login";
+            row.innerHTML = `<span class="security-activity-dot ${item.success ? "is-success" : "is-failed"}"></span><div><strong>${label}</strong><small>${securityDate(item.created_at)} · IP: ${escapeSecurityText(item.ip_address || "Unavailable")}</small></div>`;
+            activityBox.appendChild(row);
+        });
+        document.getElementById("securityMsg").textContent = "";
+    } catch (error) {
+        summary.textContent = "Unable to load your security information.";
+        document.getElementById("securityMsg").textContent = error.message;
+    }
+}
+
+function escapeSecurityText(value) {
+    return String(value).replace(/[&<>"']/g, ch => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;"}[ch]));
+}
+
+async function revokeSecurityDevice(id) {
+    if (!confirm("Sign this device out of Vynqo?")) return;
+    try {
+        await api(`/me/security/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
+        showToast("Device signed out");
+        await loadSecuritySettings();
+    } catch (error) { showToast(error.message); }
+}
+
+async function logoutOtherDevices() {
+    if (!confirm("Sign out every other device, keeping this one active?")) return;
+    try {
+        const result = await api("/me/security/sessions/logout-others", { method: "POST" });
+        showToast(`${result.count} other device(s) signed out`);
+        await loadSecuritySettings();
+    } catch (error) { showToast(error.message); }
+}
+
+async function logoutAllDevices() {
+    if (!confirm("This will sign out this device and every other device. Continue?")) return;
+    try {
+        await api("/me/security/logout-all", { method: "POST" });
+        localStorage.removeItem(TOKEN_KEY);
+        if (typeof onLoggedOut === "function") onLoggedOut();
+        document.getElementById("securityModal").classList.add("hidden");
+        document.getElementById("appScreen").classList.add("hidden");
+        document.getElementById("authScreen").classList.remove("hidden");
+        showLogin();
+        showToast("All devices have been signed out");
+    } catch (error) { showToast(error.message); }
 }
