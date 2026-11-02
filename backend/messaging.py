@@ -620,3 +620,32 @@ def message_image(filename):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Cache-Control"] = "private, max-age=86400, immutable"
     return response
+
+@messages_bp.route("/messages/images/<filename>/download")
+def download_message_image(filename):
+    """Download a message photo after the same access checks as image viewing."""
+    if not SAFE_NAME.match(filename):
+        abort(404)
+
+    viewer = verified_viewer("messages", filename)
+    if viewer is None:
+        abort(404)
+
+    message = Message.query.filter_by(image_filename=filename).first()
+    conv = db.session.get(Conversation, message.conversation_id) if message else None
+
+    # Only the two participants in the conversation may download this image.
+    if not conv or viewer not in (conv.user_low_id, conv.user_high_id):
+        abort(404)
+
+    extension = filename.rsplit(".", 1)[1].lower()
+    response = send_from_directory(
+        MESSAGE_DIR,
+        filename,
+        mimetype=MIME[extension],
+        as_attachment=True,
+        download_name=f"vynqo-photo.{extension}",
+    )
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
