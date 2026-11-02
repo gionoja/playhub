@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Vynqo — Connect. Play. Share.</title>
-    <link rel="stylesheet" href="style.css?v=13">
+    <link rel="stylesheet" href="style.css?v=15">
 </head>
 
 <body>
@@ -300,37 +300,50 @@
             <div id="gameHistoryDetail" class="game-history-detail hidden"></div>
         </section>
 
-        <section class="games-grid">
+        <section class="games-grid vynqo-games-grid">
 
-            <article class="game-card ludo">
-                <div class="game-icon"><svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><path d="M16 8h.01"/><path d="M8 8h.01"/><path d="M8 16h.01"/><path d="M16 16h.01"/><path d="M12 12h.01"/></svg></div>
-
-                <div class="game-info">
-                    <h2>Ludo</h2>
-                    <p>Challenge another player.</p>
+            <article class="game-card ludo vynqo-game-card" onclick="openGame('Ludo')">
+                <div class="game-art ludo-art" role="img" aria-label="Colourful Ludo board with four player tokens">
+                    <span class="game-art-badge">BOARD GAME</span><span class="game-art-players">♟ 2–4 PLAYERS</span>
                 </div>
-
-                <button onclick="openGame('Ludo')">
-                    Play
-                </button>
+                <div class="game-info"><h2>Ludo</h2><p>Roll the dice. Race your pieces home.</p></div>
+                <button type="button" onclick="event.stopPropagation();openGame('Ludo')">Play <span>↗</span></button>
             </article>
 
-
-            <article class="game-card snooker">
-                <div class="game-icon"><svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/></svg></div>
-
-                <div class="game-info">
-                    <h2>Snooker</h2>
-                    <p>Compete in a one-on-one match.</p>
+            <article class="game-card snooker vynqo-game-card" onclick="openGame('Snooker')">
+                <div class="game-art snooker-art" role="img" aria-label="Green snooker table and colourful balls">
+                    <span class="game-art-badge">SPORTS</span><span class="game-art-players">♟ 2 PLAYERS</span>
                 </div>
+                <div class="game-info"><h2>Snooker</h2><p>Line up your shot. Own the table.</p></div>
+                <button type="button" onclick="event.stopPropagation();openGame('Snooker')">Play <span>↗</span></button>
+            </article>
 
-                <button onclick="openGame('Snooker')">
-                    Play
-                </button>
+            <article class="game-card draft vynqo-game-card" onclick="openDraftModes()">
+                <div class="game-art draft-art" role="img" aria-label="Draughts board with red and black pieces">
+                    <span class="game-art-badge">STRATEGY</span><span class="game-art-players">♟ 2 PLAYERS</span>
+                </div>
+                <div class="game-info"><h2>Draft</h2><p>Think ahead. Capture. Become king.</p></div>
+                <button type="button" onclick="event.stopPropagation();openDraftModes()">Play <span>↗</span></button>
             </article>
 
         </section>
 
+        <section id="draftPanel" class="draft-panel hidden" aria-live="polite">
+            <div class="draft-panel-head"><div><p class="small-text">VYNQO ORIGINALS</p><h2 id="draftPanelTitle">Choose your Draft</h2></div><button class="games-history-close" onclick="closeDraft()" aria-label="Close Draft">×</button></div>
+            <div id="draftModes" class="draft-modes">
+                <button class="draft-mode-card" onclick="selectDraftMode('nigerian')"><span class="draft-mode-art nigerian-mode-art"></span><strong>Nigerian Draft</strong><small>10 × 10 board · Flying kings</small></button>
+                <button class="draft-mode-card" onclick="selectDraftMode('english')"><span class="draft-mode-art english-mode-art"></span><strong>English Checkers</strong><small>8 × 8 board · Classic rules</small></button>
+            </div>
+            <div id="draftLobby" class="hidden">
+                <div class="draft-lobby-actions"><button class="primary-btn" onclick="draftFindOpponent()">Find random opponent</button><button class="secondary-btn" onclick="draftShowFriends()">Invite a friend</button></div>
+                <p id="draftLobbyStatus" class="muted" role="status"></p><div id="draftFriends" class="draft-friends"></div><div id="draftInvites" class="draft-invites"></div>
+            </div>
+            <div id="draftGame" class="hidden">
+                <div class="draft-game-top"><div><strong id="draftOpponent">Opponent</strong><small id="draftTurnText">Your turn</small></div><button class="secondary-btn" onclick="draftResign()">Resign</button></div>
+                <div id="draftBoard" class="draft-board" role="grid" aria-label="Draft board"></div>
+                <p id="draftGameNotice" class="draft-game-notice" role="status">Select one of your pieces.</p>
+            </div>
+        </section>
 
         <section class="matches-section">
 
@@ -1795,6 +1808,7 @@
 <script src="feed.js?v=9"></script>
 <script src="profile.js?v=10"></script>
 <script src="pool.js?v=10"></script>
+<script src="draft.js?v=2"></script>
 
 </body>
 </html>

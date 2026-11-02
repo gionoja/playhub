@@ -1,0 +1,66 @@
+VYNQO DRAFT GAME UPDATE
+=======================
+
+Included
+--------
+- New Draft game card using the existing Vynqo theme variables and matching
+  image-led artwork for Draft, Ludo and Snooker.
+- Two Draft modes:
+    * Nigerian Draft: 10x10 board, 20 pieces per side, backward captures,
+      and flying kings.
+    * English Checkers: 8x8 board, 12 pieces per side, forward-only men,
+      and short-range kings.
+- Friend invitations, including invitations to currently offline friends.
+- Random opponent matchmaking.
+- Server-side move validation, mandatory captures, multi-capture turns,
+  promotion, win detection and resignation.
+- Match state refresh and reconnect-by-reopening the active game view.
+- No coin stakes or wallet transfers are enabled for Draft.
+
+Files added
+-----------
+backend/draft_game.py
+front/draft.js
+assets/draft-art.svg
+assets/draft-nigerian.svg
+assets/draft-english.svg
+assets/ludo-art.svg
+assets/snooker-art.svg
+
+Files updated
+-------------
+backend/app.py
+front/index.html
+front/style.css
+
+Important implementation notes
+------------------------------
+- Draft state is authoritative on the server. Browser input cannot directly
+  set a winner or write a board state.
+- Live updates currently use short-interval HTTP polling, matching the
+  existing app's polling approach. This is not a WebSocket implementation.
+- Random matchmaking queue entries are in process memory; a server restart
+  clears players who are still waiting. Active Draft matches are persisted.
+- This update's Nigerian Draft mode uses the 10x10 international-style
+  movement/capture model commonly used for Nigerian draughts. Local house
+  rules can differ, so confirm the exact rules with players before launch.
+- The update uses the existing SQLite db.create_all() startup behavior to
+  create the new draft_match and draft_invite tables without dropping tables.
+
+Installation
+------------
+1. Back up your current project folder and SQLite database.
+2. Extract this ZIP into a temporary folder.
+3. Copy the included backend/, front/, and assets/ files into the matching
+   folders in your project, allowing the listed files to be updated.
+4. Do not replace your .env, instance/playhub.db, uploads/, venv/, or .git/.
+5. Restart the Flask backend. db.create_all() creates the two new Draft tables.
+6. Hard-refresh the browser so the new CSS and JavaScript load.
+
+Testing status
+--------------
+Python syntax compilation and JavaScript syntax validation passed in the
+packaging environment. Flask runtime/integration tests could not be run
+because Flask is not installed in that environment. Test invitations,
+matchmaking with two accounts, both rule modes, capture chains, promotion,
+resignation, reconnects, and simultaneous matchmaking before public release.

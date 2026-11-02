@@ -1,0 +1,21 @@
+VYNQO DRAFT INVITATION + BOARD POLISH UPDATE
+
+What changed:
+- Draft friend rows now show a clear green status dot when a friend is online and a muted dot when offline.
+- Draft invitations are checked globally, not only while the Draft panel is open.
+- Incoming invitations display a page-level popup such as "Gideon invited you to a game", with the Draft mode named below it.
+- Accept & play accepts the invitation and redirects the player to the Games screen, opening the live Draft match.
+- The sender is also redirected into the same match once the invite is accepted.
+- Added decline handling for incoming Draft invitations.
+- Friend rows indicate when a friend is already in a Draft match and disable invitations to busy players.
+- Reworked the board into a restrained, natural wood-and-cream checkers board with flat, clearly readable pieces and Vynqo-green move indicators.
+- Cache versions were bumped for the updated stylesheet and Draft script.
+
+The Draft invitations remain separate from Pool's invitation records, but follow the same interaction pattern: a challenge arrives as a global popup, can be accepted or declined, and acceptance takes both players directly into the match. Existing Pool challenge code and routes were not changed.
+
+Validation performed:
+- python -m py_compile backend/draft_game.py
+- node --check front/draft.js
+- node --check front/pool.js
+
+Flask integration tests were not run because Flask is not installed in this environment. Install backend/requirements.txt in the project's virtual environment and test with two accounts before deploying.
