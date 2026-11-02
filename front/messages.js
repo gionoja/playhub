@@ -427,6 +427,19 @@ function messageNode(m) {
             openImageViewer(all.map(i => ({ url: i.src, caption: "" })), Math.max(0, all.indexOf(img)));
         });
         link.append(img); bubble.append(link);
+
+        // Keep the signed image URL so downloads remain protected by the
+        // same conversation-membership check as viewing the photo.
+        const imagePath = String(m.image_url).split("?")[0];
+        const signedQuery = String(m.image_url).includes("?")
+            ? "?" + String(m.image_url).split("?").slice(1).join("?")
+            : "";
+        const download = el("a", "msg-image-download", "⬇ Download photo");
+        download.href = API_URL + imagePath + "/download" + signedQuery;
+        download.setAttribute("download", "");
+        download.setAttribute("aria-label", "Download photo to your computer");
+        download.title = "Download photo";
+        bubble.append(download);
     }
 
     if (m.audio_url) {

@@ -3540,6 +3540,34 @@ body.no-scroll {
     cursor: zoom-in;
 }
 
+.msg-image-download {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin: 7px 4px 3px;
+    padding: 7px 11px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text);
+    background: var(--card);
+    font-size: 12px;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background .15s ease, transform .15s ease;
+}
+
+.msg-image-download:hover {
+    background: var(--hover, rgba(127, 127, 127, .14));
+    transform: translateY(-1px);
+}
+
+.msg-image-download:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
 @media (max-width: 650px) {
     .iv-nav {
         width: 42px;
