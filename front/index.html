@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Vynqo — Connect. Play. Share.</title>
-    <link rel="stylesheet" href="style.css?v=12">
+    <link rel="stylesheet" href="style.css?v=13">
 </head>
 
 <body>
@@ -277,9 +277,28 @@
 
         <section class="page-header">
             <p class="small-text">Play against others</p>
-            <h1>Games</h1>
+            <div class="games-heading-row">
+                <h1>Games</h1>
+                <button class="games-history-trigger" type="button" onclick="openGameHistory()">
+                    <span aria-hidden="true">◷</span> Game history
+                </button>
+            </div>
         </section>
 
+        <section id="gameHistoryPanel" class="game-history-panel hidden" aria-live="polite">
+            <div class="game-history-heading">
+                <div><p class="small-text">Your matches, all in one place</p><h2>Game history</h2></div>
+                <button class="games-history-close" type="button" onclick="closeGameHistory()" aria-label="Close game history">×</button>
+            </div>
+            <div id="gameHistorySummary" class="game-history-summary"></div>
+            <div class="game-history-filters" role="group" aria-label="Filter game history">
+                <button class="active" type="button" data-history-filter="all" onclick="filterGameHistory('all', this)">All games</button>
+                <button type="button" data-history-filter="pool8" onclick="filterGameHistory('pool8', this)">Snooker</button>
+                <button type="button" data-history-filter="ludo" onclick="filterGameHistory('ludo', this)">Ludo</button>
+            </div>
+            <div id="gameHistoryList" class="game-history-list"><p class="muted">Loading your matches…</p></div>
+            <div id="gameHistoryDetail" class="game-history-detail hidden"></div>
+        </section>
 
         <section class="games-grid">
 
@@ -1775,7 +1794,7 @@
 <script src="world-chat.js?v=2"></script>
 <script src="feed.js?v=9"></script>
 <script src="profile.js?v=10"></script>
-<script src="pool.js?v=9"></script>
+<script src="pool.js?v=10"></script>
 
 </body>
 </html>

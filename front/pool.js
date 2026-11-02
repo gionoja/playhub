@@ -1818,3 +1818,109 @@ function startPoolConfetti() {
 
     requestAnimationFrame(frame);
 }
+
+/* ========================= GAME HISTORY ==========================
+   History lives alongside the growing Games catalogue, not as a game card.
+   The server supplies the authoritative match records and shot audit trail.
+*/
+let gameHistoryFilter = "all";
+let gameHistoryCache = [];
+
+function gameHistoryDate(value) {
+    if (!value) return "Date unavailable";
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? "Date unavailable" : d.toLocaleString([], {dateStyle:"medium", timeStyle:"short"});
+}
+function gameHistoryDuration(value) {
+    if (value == null) return "Not recorded";
+    const mins = Math.floor(value / 60), secs = value % 60;
+    return mins ? mins + "m " + secs + "s" : secs + "s";
+}
+function gameHistoryGameName(game) { return game === "pool8" ? "Snooker" : game === "ludo" ? "Ludo" : String(game || "Game").replace(/[_-]/g," ").replace(/\b\w/g,c=>c.toUpperCase()); }
+function gameHistoryNode(tag, cls, value) { const node=document.createElement(tag); if(cls)node.className=cls; if(value!==undefined)node.textContent=value; return node; }
+
+async function openGameHistory() {
+    const panel = document.getElementById("gameHistoryPanel");
+    if (!panel) return;
+    panel.classList.remove("hidden");
+    panel.scrollIntoView({behavior:"smooth",block:"start"});
+    await loadGameHistory();
+}
+function closeGameHistory() {
+    const panel=document.getElementById("gameHistoryPanel");
+    if(panel)panel.classList.add("hidden");
+}
+async function loadGameHistory() {
+    const list=document.getElementById("gameHistoryList");
+    if(!list)return;
+    list.replaceChildren(gameHistoryNode("p","muted","Loading your match history…"));
+    try {
+        const result=await api("/games/history?game="+encodeURIComponent(gameHistoryFilter));
+        gameHistoryCache=result.matches||[];
+        renderGameHistorySummary(result.summary||{});
+        renderGameHistoryList();
+    } catch(error) {
+        list.replaceChildren(gameHistoryNode("p","muted",error.message||"Couldn't load your game history."));
+    }
+}
+function renderGameHistorySummary(summary) {
+    const box=document.getElementById("gameHistorySummary"); if(!box)return;
+    box.replaceChildren();
+    [[summary.total||0,"Matches recorded"],[summary.wins||0,"Wins"],[summary.losses||0,"Losses"],[(summary.win_rate||0)+"%","Win rate"]].forEach(([value,label])=>{
+        const card=gameHistoryNode("div","game-history-stat");card.append(gameHistoryNode("strong","",String(value)),gameHistoryNode("span","",label));box.append(card);
+    });
+}
+function renderGameHistoryList() {
+    const list=document.getElementById("gameHistoryList");if(!list)return;
+    list.replaceChildren();
+    if(!gameHistoryCache.length){list.append(gameHistoryNode("p","muted","No completed matches yet. Your finished games will appear here."));return;}
+    gameHistoryCache.forEach(match=>{
+        const item=gameHistoryNode("article","game-history-item"),main=gameHistoryNode("div","game-history-item-main"),ico=gameHistoryNode("div","game-history-game-icon",match.game==="pool8"?"🎱":match.game==="ludo"?"🎲":"🎮"),copy=gameHistoryNode("div",""),side=gameHistoryNode("div","game-history-item-side");
+        copy.append(gameHistoryNode("h3","",gameHistoryGameName(match.game)+" · vs "+(match.opponent?.full_name||"Opponent")));
+        copy.append(gameHistoryNode("p","",gameHistoryDate(match.played_at)+" · "+gameHistoryDuration(match.duration_seconds)+" · "+(match.shot_count||0)+" shots"));
+        main.append(ico,copy);
+        const outcome=gameHistoryNode("div","game-history-outcome "+match.outcome,match.outcome==="win"?"Victory":match.outcome==="loss"?"Defeat":"No winner");
+        const details=gameHistoryNode("button","","View report");details.type="button";details.addEventListener("click",()=>openGameHistoryDetail(match.id));
+        side.append(outcome,details);item.append(main,side);list.append(item);
+    });
+}
+async function filterGameHistory(filter, button) {
+    gameHistoryFilter=filter;
+    document.querySelectorAll("[data-history-filter]").forEach(el=>el.classList.toggle("active",el===button));
+    const detail=document.getElementById("gameHistoryDetail");if(detail){detail.classList.add("hidden");detail.replaceChildren();}
+    await loadGameHistory();
+}
+async function openGameHistoryDetail(matchId) {
+    const box=document.getElementById("gameHistoryDetail");if(!box)return;
+    box.classList.remove("hidden");box.replaceChildren(gameHistoryNode("p","muted","Loading full match report…"));
+    try {
+        const report=await api("/games/history/"+matchId);
+        box.replaceChildren();
+        const heading=gameHistoryNode("h3","",gameHistoryGameName(report.game)+" match report");
+        const intro=gameHistoryNode("p","muted",gameHistoryDate(report.played_at)+" · "+gameHistoryDuration(report.duration_seconds)+" · "+(report.stake?report.stake+" coin stake":"Free match"));
+        box.append(heading,intro);
+        const cards=gameHistoryNode("div","game-history-detail-grid");
+        const addCard=(label,value)=>{const c=gameHistoryNode("div","game-history-detail-card");c.append(gameHistoryNode("span","",label),gameHistoryNode("strong","",String(value)));cards.append(c);};
+        addCard("Your result",report.result==="win"?"Victory":report.result==="loss"?"Defeat":"No winner");
+        addCard("Winner",report.winner||"No winner");
+        addCard("Shots recorded",(report.shots||[]).length);
+        addCard("Match duration",gameHistoryDuration(report.duration_seconds));
+        box.append(cards);
+        if(report.reason)box.append(gameHistoryNode("p","muted","Match outcome: "+report.reason));
+        (report.players||[]).forEach(player=>{
+            const title=gameHistoryNode("h4","",player.name+(player.is_me?" (You)":""));box.append(title);
+            const st=player.stats||{};
+            const line=gameHistoryNode("p","muted","Shots: "+(st.shots??"—")+" · Balls pocketed: "+(st.pocketed??"—")+" · Fouls: "+(st.fouls??"—"));box.append(line);
+        });
+        box.append(gameHistoryNode("h4","","Shot-by-shot timeline"));
+        if(!(report.shots||[]).length)box.append(gameHistoryNode("p","muted","No shot records were saved for this match."));
+        (report.shots||[]).forEach(shot=>{
+            const row=gameHistoryNode("div","game-history-shot"),left=gameHistoryNode("div",""),right=gameHistoryNode("div","");
+            left.append(gameHistoryNode("strong","","Shot #"+shot.sequence+" · "+shot.player),gameHistoryNode("br",""),gameHistoryNode("small","",gameHistoryDate(shot.played_at)));
+            const pocketed=(shot.pocketed_balls||[]).length?(" · Pocketed balls "+shot.pocketed_balls.join(", ")):"";
+            const detailText=(shot.details?.foul_reasons||[]).join(", ");
+            right.textContent=shot.power_percent+"% power"+(shot.foul?" · Foul"+(detailText?": "+detailText:""):"")+pocketed+(shot.details?.message?" · "+shot.details.message:"");row.append(left,right);box.append(row);
+        });
+        const close=gameHistoryNode("button","","Close report");close.type="button";close.addEventListener("click",()=>{box.classList.add("hidden");box.replaceChildren();});box.append(close);
+    } catch(error) {box.replaceChildren(gameHistoryNode("p","muted",error.message||"Couldn't load this match report."));}
+}

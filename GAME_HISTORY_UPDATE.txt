@@ -1,0 +1,32 @@
+PLAYHUB / VYNQO — GAME HISTORY UPDATE
+
+WHAT CHANGED
+- Added a Game history action in the Games page header, outside the game-card grid. New games can be added to the grid without making History take up a game slot.
+- Added account-owned match summaries, win/loss statistics, game filters, and individual match reports.
+- Connected the history view to the existing Snooker (pool8) match engine.
+- Match reports include opponent, result, date/time, duration, stake, winner/reason, each player's shots/balls-pocketed/fouls, and a shot-by-shot timeline with power, foul details, pocketed balls, and timestamps.
+- Shot-level explanation data is now retained for every new Snooker shot rather than only the most recent shot.
+- Existing GameShot rows remain usable; older shot rows without details_json still appear with the data that was already recorded.
+- Added an additive details_json column migration to game_shot. Existing database records are not deleted or rewritten.
+- History is private to the two match participants; the API checks that the signed-in user took part in the match.
+- Waiting matches that never started are not shown as games played.
+
+FILES CHANGED
+- backend/games.py
+- backend/models.py
+- front/index.html
+- front/pool.js
+- front/style.css
+
+INSTALLATION
+1. Back up your current project and database first.
+2. Extract this ZIP.
+3. Copy the included backend/ and front/ folders over the matching folders in your project. Keep your own .env, database, uploads, virtual environment, and Git folder.
+4. Restart Flask. The existing startup migration adds game_shot.details_json without dropping existing data.
+5. Hard-refresh the browser (Ctrl+Shift+R).
+
+NOTES
+- This is connected to the current Snooker implementation, whose internal game key is pool8.
+- The Ludo filter is present for the expanding games catalogue, but Ludo history will populate only when Ludo matches are connected to a backend match-record system. No Ludo results are fabricated.
+- Full shot-by-shot explanation data is retained from this update onward. Older records can show only the information that was already saved.
+- Python and JavaScript syntax checks passed. Automated Flask/database tests were not run because Flask is not installed in the packaging environment.
