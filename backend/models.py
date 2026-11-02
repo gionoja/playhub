@@ -491,6 +491,8 @@ class GameShot(db.Model):
 
     foul = db.Column(db.Boolean, nullable=False, default=False)
     pocketed = db.Column(db.String(60), nullable=True)
+    # Per-shot explanation, retained after last_shot_json moves to the next turn.
+    details_json = db.Column(db.Text, nullable=True)
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -583,6 +585,9 @@ def ensure_columns():
             ("video_filename", "VARCHAR(64)"),
             ("edited_at", "DATETIME"),
             ("client_token", "VARCHAR(40)"),
+        ],
+        "game_shot": [
+            ("details_json", "TEXT"),
         ],
         "message": [
             ("audio_filename", "VARCHAR(64)"),

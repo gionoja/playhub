@@ -304,6 +304,96 @@ def _finish(match, winner_slot, reason, state=None):
     return rows == 1
 
 
+# ------------------------------------------------------------ game history
+
+@games_bp.route("/games/history")
+@login_required
+def game_history():
+    """Completed/cancelled matches for the signed-in player, newest first."""
+    _housekeeping()
+    game_filter = (request.args.get("game") or "all").strip().lower()
+    query = GameMatch.query.filter(
+        or_(GameMatch.player1_id == g.me_id, GameMatch.player2_id == g.me_id),
+        GameMatch.status.in_(("completed", "cancelled")),
+        or_(GameMatch.status == "completed", GameMatch.started_at.isnot(None)),
+    )
+    if game_filter not in ("", "all"):
+        query = query.filter(GameMatch.game == game_filter)
+
+    matches = query.order_by(GameMatch.ended_at.desc(), GameMatch.id.desc()).limit(100).all()
+    user_ids = {uid for m in matches for uid in (m.player1_id, m.player2_id)}
+    users = {u.id: u for u in User.query.filter(User.id.in_(user_ids)).all()} if user_ids else {}
+    preload_avatars(list(users))
+    items = []
+    for m in matches:
+        mine_slot = _slot(m, g.me_id)
+        opponent_id = m.player2_id if mine_slot == 1 else m.player1_id
+        state = json.loads(m.state_json or "{}")
+        stats = state.get("stats", {})
+        mine_stats = stats.get(str(mine_slot), {})
+        other_stats = stats.get(str(3 - mine_slot), {})
+        outcome = "draw" if not m.winner_slot else ("win" if m.winner_slot == mine_slot else "loss")
+        duration = int((m.ended_at - m.started_at).total_seconds()) if m.started_at and m.ended_at else None
+        items.append({
+            "id": m.id, "game": m.game, "status": m.status, "outcome": outcome,
+            "opponent": _brief(users[opponent_id]) if opponent_id in users else {"full_name": "Former player", "username": None, "avatar_url": None},
+            "played_at": _iso(m.ended_at or m.created_at), "started_at": _iso(m.started_at),
+            "duration_seconds": duration, "stake": m.stake, "winner": users[m.player1_id if m.winner_slot == 1 else m.player2_id].full_name if m.winner_slot and (m.player1_id if m.winner_slot == 1 else m.player2_id) in users else None,
+            "reason": m.win_reason, "my_stats": mine_stats, "opponent_stats": other_stats,
+            "shot_count": GameShot.query.filter_by(match_id=m.id).count(),
+        })
+
+    completed = [x for x in items if x["status"] == "completed"]
+    wins = sum(1 for x in completed if x["outcome"] == "win")
+    losses = sum(1 for x in completed if x["outcome"] == "loss")
+    return jsonify({"matches": items, "summary": {
+        "total": len(items), "completed": len(completed), "wins": wins, "losses": losses,
+        "draws": sum(1 for x in completed if x["outcome"] == "draw"),
+        "win_rate": round((wins / len(completed)) * 100) if completed else 0,
+    }})
+
+
+@games_bp.route("/games/history/<int:match_id>")
+@login_required
+def game_history_detail(match_id):
+    """Full match report. Only either participant may access the record."""
+    match, slot = _participant_match(match_id)
+    if not match or match.status not in ("completed", "cancelled"):
+        return _error("Game history record not found", 404)
+
+    users = _match_users(match)
+    state = json.loads(match.state_json or "{}")
+    stats = state.get("stats", {})
+    shots = GameShot.query.filter_by(match_id=match.id).order_by(GameShot.seq.asc()).all()
+    shot_rows = []
+    for shot in shots:
+        shooter = users.get(shot.user_id)
+        shot_rows.append({
+            "sequence": shot.seq, "player": shooter.full_name if shooter else "Former player",
+            "is_mine": shot.user_id == g.me_id, "power_percent": round(shot.power * 100),
+            "angle_degrees": round(shot.angle, 1), "foul": shot.foul,
+            "pocketed_balls": [int(x) for x in (shot.pocketed or "").split(",") if x.strip().isdigit()],
+            "details": json.loads(shot.details_json) if shot.details_json else {},
+            "played_at": _iso(shot.created_at),
+        })
+
+    winner_id = match.player1_id if match.winner_slot == 1 else match.player2_id if match.winner_slot == 2 else None
+    duration = int((match.ended_at - match.started_at).total_seconds()) if match.started_at and match.ended_at else None
+    return jsonify({
+        "id": match.id, "game": match.game, "status": match.status,
+        "result": "draw" if not winner_id else ("win" if winner_id == g.me_id else "loss"),
+        "winner": users[winner_id].full_name if winner_id in users else None,
+        "reason": match.win_reason, "played_at": _iso(match.ended_at or match.created_at),
+        "started_at": _iso(match.started_at), "duration_seconds": duration, "stake": match.stake,
+        "players": [{"name": users[uid].full_name, "username": users[uid].username,
+                     "is_me": uid == g.me_id, "stats": stats.get(str(s), {})}
+                    for s, uid in ((1, match.player1_id), (2, match.player2_id))],
+        "shots": shot_rows,
+        "final_table": {"remaining_balls": len([b for b in state.get("balls", []) if not b.get("pocketed")]),
+                        "table_open": state.get("table_open"), "groups": state.get("groups", {})},
+    })
+
+
 # --------------------------------------------------------------- lobby
 
 @games_bp.route("/games/pool/friends")
@@ -737,6 +827,11 @@ def take_shot(match_id):
         match_id=match.id, seq=seq, user_id=g.me_id,
         angle=float(angle), power=min(float(power), 1.0),
         foul=result["foul"], pocketed=",".join(str(i) for i in result["pocketed"]),
+        details_json=json.dumps({
+            "foul_reasons": result.get("foul_reasons", []),
+            "message": state.get("message"),
+            "events": sim.events,
+        }, separators=(",", ":")),
     ))
     db.session.commit()
     db.session.expire_all()
