@@ -1162,6 +1162,11 @@
                 </select>
             </label>
 
+            <div class="chat-call-actions" aria-label="Call options">
+                <button type="button" class="chat-icon-btn" title="Start audio call" aria-label="Start audio call" onclick="chatCallFriend('audio')">☎</button>
+                <button type="button" class="chat-icon-btn" title="Start video call" aria-label="Start video call" onclick="chatCallFriend('video')">▣</button>
+            </div>
+
             <div class="chat-actions">
                 <button id="chatActionsToggle" class="chat-icon-btn chat-menu-toggle" type="button"
                     aria-label="Chat options" aria-haspopup="true" aria-expanded="false"
@@ -1801,6 +1806,7 @@
 </div>
 
 
+<script src="http://127.0.0.1:5000/socket.io/socket.io.js"></script>
 <script src="app.js?v=10"></script>
 <script src="social.js?v=11"></script>
 <script src="messages.js?v=11"></script>
@@ -1809,6 +1815,7 @@
 <script src="profile.js?v=10"></script>
 <script src="pool.js?v=10"></script>
 <script src="draft.js?v=2"></script>
+<script src="calling.js?v=1"></script>
 
 </body>
 </html>

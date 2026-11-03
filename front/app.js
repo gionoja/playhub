@@ -226,6 +226,7 @@ function openApp() {
     updateProfile();
 
     if (typeof onAppOpened === "function") onAppOpened();
+    if (typeof onCallingAppOpened === "function") onCallingAppOpened();
 }
 
 
@@ -243,6 +244,7 @@ async function logout() {
     localStorage.removeItem(TOKEN_KEY);
 
     if (typeof onLoggedOut === "function") onLoggedOut();
+    if (typeof onCallingLoggedOut === "function") onCallingLoggedOut();
 
     document.getElementById("appScreen").classList.add("hidden");
 

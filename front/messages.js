@@ -481,6 +481,13 @@ function messageNode(m) {
     return row;
 }
 
+function chatCallFriend(type) {
+    const friend = chat.open && chat.open.user;
+    if (!friend || !friend.id) { showToast("Open a friend's conversation first"); return; }
+    if (!chat.open.canMessage) { showToast("Calling is available between friends when neither person is blocked"); return; }
+    if (typeof startVynqoCall === "function") startVynqoCall(friend.id, type);
+}
+
 function renderChat() {
 
     const c = chat.open;
