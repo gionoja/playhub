@@ -13,6 +13,7 @@ import os
 from dotenv import load_dotenv
 
 from flask_mail import Mail
+from flask_socketio import SocketIO
 
 from database import db
 
@@ -29,12 +30,15 @@ from messaging import messages_bp
 from games import games_bp
 from draft_game import draft_bp
 from verify_page import render_verify_page
+from calling import calling_bp, init_calling_socket
 
 load_dotenv()
 
 app = Flask(__name__)
 
 CORS(app)
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
+init_calling_socket(socketio)
 
 app.config["MAIL_SERVER"] = "smtp.gmail.com"
 app.config["MAIL_PORT"] = 587
@@ -65,6 +69,7 @@ app.register_blueprint(feed_bp)
 app.register_blueprint(messages_bp)
 app.register_blueprint(games_bp)
 app.register_blueprint(draft_bp)
+app.register_blueprint(calling_bp)
 
 # Additive World Chat and matchmaking API; existing routes remain unchanged.
 from world_chat import world_chat_bp, ensure_world_chat_columns
@@ -282,8 +287,10 @@ def login():
 
 
 if __name__ == "__main__":
-    app.run(
+    socketio.run(
+        app,
         host="0.0.0.0",
         port=5000,
-        debug=True
+        debug=True,
+        allow_unsafe_werkzeug=True
     )

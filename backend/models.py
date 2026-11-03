@@ -56,6 +56,27 @@ class AuthSession(db.Model):
     revoked_at = db.Column(db.DateTime, nullable=True)
 
 
+class CallSession(db.Model):
+    """One in-app audio/video call between two Vynqo friends."""
+    id = db.Column(db.String(36), primary_key=True)
+    caller_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+    callee_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+    call_type = db.Column(db.String(10), nullable=False, default="audio")
+    status = db.Column(db.String(16), nullable=False, default="ringing", index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    answered_at = db.Column(db.DateTime, nullable=True)
+    ended_at = db.Column(db.DateTime, nullable=True)
+
+    caller = db.relationship("User", foreign_keys=[caller_id])
+    callee = db.relationship("User", foreign_keys=[callee_id])
+
+    __table_args__ = (
+        CheckConstraint("call_type IN ('audio', 'video')", name="ck_call_type"),
+        CheckConstraint("status IN ('ringing', 'accepted', 'rejected', 'cancelled', 'ended', 'missed')", name="ck_call_status"),
+        CheckConstraint("caller_id != callee_id", name="ck_call_not_self"),
+    )
+
+
 class LoginActivity(db.Model):
     """Security audit trail. Never stores passwords or authentication tokens."""
     id = db.Column(db.Integer, primary_key=True)

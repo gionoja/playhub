@@ -76,6 +76,7 @@ def _is_online(user_id):
 
 def _other_info(user):
     return {
+        "id": user.id,
         "full_name": user.full_name,
         "username": user.username,
         "avatar_url": avatar_url(user.id),
