@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Vynqo — Connect. Play. Share.</title>
     <link rel="stylesheet" href="style.css?v=15">
+    <link rel="stylesheet" href="games/tictactoe/tictactoe.css?v=1">
 </head>
 
 <body>
@@ -326,6 +327,18 @@
                 <button type="button" onclick="event.stopPropagation();openDraftModes()">Play <span>↗</span></button>
             </article>
 
+            <article class="game-card tictactoe vynqo-game-card" onclick="openTicTacToe()">
+                <div class="game-art ttt-game-art" role="img" aria-label="Tic-Tac-Toe X and O board"><span>X</span><span>O</span></div>
+                <div class="game-info"><h2>Tic-Tac-Toe</h2><p>Make three in a row. Challenge a friend.</p></div>
+                <button type="button" onclick="event.stopPropagation();openTicTacToe()">Play <span>↗</span></button>
+            </article>
+
+        </section>
+
+        <section id="ticTacToePanel" class="tictactoe-panel hidden" aria-live="polite">
+            <div class="ttt-head"><div><p class="small-text">VYNQO ORIGINALS</p><h2>Tic-Tac-Toe</h2><p>Two players. Three in a row wins.</p></div><button class="games-history-close" type="button" onclick="closeTicTacToe()" aria-label="Close Tic-Tac-Toe">×</button></div>
+            <div id="tttLobby" class="ttt-lobby"><h3>Challenge a friend</h3><p class="muted">Choose someone from your Vynqo friends list.</p><div id="tttFriends" class="ttt-friends">Loading friends…</div><div id="tttInvites" class="ttt-invites"></div></div>
+            <div id="tttBoardWrap" class="ttt-board-wrap hidden"><div class="ttt-match-top"><div><strong id="tttOpponent">Opponent</strong><p id="tttStatus" role="status">Waiting…</p></div><button id="tttResign" class="secondary-btn hidden" type="button" onclick="tttResign()">Resign</button></div><div id="tttBoard" class="ttt-board" role="group" aria-label="Tic-Tac-Toe board"></div><div class="ttt-actions"><button id="tttRematch" class="primary-btn hidden" type="button" onclick="tttRematch()">Play another match</button><button class="secondary-btn" type="button" onclick="closeTicTacToe()">Back to Games</button></div></div>
         </section>
 
         <section id="draftPanel" class="draft-panel hidden" aria-live="polite">
@@ -1815,6 +1828,7 @@
 <script src="profile.js?v=10"></script>
 <script src="pool.js?v=10"></script>
 <script src="draft.js?v=2"></script>
+<script src="games/tictactoe/tictactoe.js?v=1"></script>
 <script src="calling.js?v=1"></script>
 
 </body>
