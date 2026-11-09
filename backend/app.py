@@ -28,10 +28,10 @@ from profiles import avatar_url
 from feed import feed_bp
 from messaging import messages_bp
 from games import games_bp
-from tictactoe import tictactoe_bp
 from draft_game import draft_bp
 from verify_page import render_verify_page
 from calling import calling_bp, init_calling_socket
+from tictactoe import tictactoe_bp, init_tictactoe_socket
 
 load_dotenv()
 
@@ -40,6 +40,7 @@ app = Flask(__name__)
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 init_calling_socket(socketio)
+init_tictactoe_socket(socketio)
 
 app.config["MAIL_SERVER"] = "smtp.gmail.com"
 app.config["MAIL_PORT"] = 587
