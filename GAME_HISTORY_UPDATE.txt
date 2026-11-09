@@ -30,3 +30,10 @@ NOTES
 - The Ludo filter is present for the expanding games catalogue, but Ludo history will populate only when Ludo matches are connected to a backend match-record system. No Ludo results are fabricated.
 - Full shot-by-shot explanation data is retained from this update onward. Older records can show only the information that was already saved.
 - Python and JavaScript syntax checks passed. Automated Flask/database tests were not run because Flask is not installed in the packaging environment.
+
+
+
+
+
+
+

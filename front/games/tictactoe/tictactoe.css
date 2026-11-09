@@ -10,3 +10,24 @@
 .ttt-friend{background:var(--card)}.ttt-outgoing-note{margin:8px 0;padding:10px 12px;border-radius:10px;background:var(--primary-soft,rgba(120,100,255,.08))}
 .ttt-chat-notice{position:fixed;z-index:10050;right:18px;top:18px;max-width:min(390px,calc(100vw - 36px));padding:13px 16px;border:1px solid var(--border);border-radius:13px;background:var(--card);color:var(--text);box-shadow:var(--shadow);opacity:0;pointer-events:none;transform:translateY(-8px);transition:opacity .18s,transform .18s}
 .ttt-chat-notice.is-visible{opacity:1;transform:translateY(0)}
+
+
+/* Match feedback: keep the board mounted and animate only changed marks/results. */
+.ttt-board-wrap{position:relative}
+.ttt-cell.ttt-mark-pop{animation:ttt-mark-pop .22s cubic-bezier(.2,.8,.2,1)}
+.ttt-cell.ttt-winning-cell{border-color:#22b879;background:rgba(34,184,121,.13);box-shadow:inset 0 0 0 2px rgba(34,184,121,.22);animation:ttt-winning-pulse .9s ease-in-out infinite alternate}
+.ttt-result-animation{display:grid;justify-items:center;gap:7px;margin:18px auto 4px;padding:18px 16px;max-width:390px;border:1px solid var(--border);border-radius:16px;background:var(--card);animation:ttt-result-enter .42s cubic-bezier(.2,.8,.2,1) both}
+.ttt-result-animation.is-dismissed{display:none}
+.ttt-result-animation.is-win{border-color:rgba(34,184,121,.55);background:linear-gradient(145deg,rgba(34,184,121,.14),var(--card) 72%)}
+.ttt-result-animation.is-loss{border-color:rgba(220,90,90,.42);background:linear-gradient(145deg,rgba(220,90,90,.10),var(--card) 72%)}
+.ttt-result-animation.is-draw{background:linear-gradient(145deg,rgba(226,164,75,.12),var(--card) 72%)}
+.ttt-result-animation strong{font-size:1.35rem}.ttt-result-animation p{margin:0 0 6px;color:var(--muted);font-size:.92rem}
+.ttt-result-symbol{font-size:2.6rem;line-height:1;animation:ttt-result-symbol .65s cubic-bezier(.2,.8,.2,1) both}
+.ttt-result-animation.is-win .ttt-result-symbol{filter:drop-shadow(0 5px 12px rgba(34,184,121,.25))}
+.ttt-result-animation.is-loss .ttt-result-symbol{animation:ttt-loss-shake .55s ease both}
+@keyframes ttt-mark-pop{0%{transform:scale(.78);opacity:.35}70%{transform:scale(1.08)}100%{transform:scale(1);opacity:1}}
+@keyframes ttt-winning-pulse{from{box-shadow:inset 0 0 0 1px rgba(34,184,121,.12)}to{box-shadow:inset 0 0 0 3px rgba(34,184,121,.38)}}
+@keyframes ttt-result-enter{from{opacity:0;transform:translateY(12px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes ttt-result-symbol{from{transform:scale(.35) rotate(-18deg);opacity:0}to{transform:scale(1) rotate(0);opacity:1}}
+@keyframes ttt-loss-shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-5px)}40%,80%{transform:translateX(5px)}}
+@media(prefers-reduced-motion:reduce){.ttt-cell.ttt-mark-pop,.ttt-cell.ttt-winning-cell,.ttt-result-animation,.ttt-result-symbol{animation:none!important;transition:none!important}}
