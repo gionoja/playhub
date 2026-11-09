@@ -193,6 +193,8 @@ def move(mid):
         match.turn = "O" if mark == "X" else "X"
     match.updated_at = datetime.utcnow()
     db.session.commit()
+    _notify(match.player_x_id, "tictactoe_match_updated", {"match_id": match.id})
+    _notify(match.player_o_id, "tictactoe_match_updated", {"match_id": match.id})
     return jsonify(_payload(match, g.me_id))
 
 
@@ -219,4 +221,6 @@ def resign(mid):
     match.winner_id = match.player_o_id if g.me_id == match.player_x_id else match.player_x_id
     match.updated_at = datetime.utcnow()
     db.session.commit()
+    _notify(match.player_x_id, "tictactoe_match_updated", {"match_id": match.id})
+    _notify(match.player_o_id, "tictactoe_match_updated", {"match_id": match.id})
     return jsonify(_payload(match, g.me_id))
