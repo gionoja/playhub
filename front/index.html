@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Vynqo — Connect. Play. Share.</title>
-    <link rel="stylesheet" href="style.css?v=15">
+    <link rel="stylesheet" href="style.css?v=16">
     <link rel="stylesheet" href="games/tictactoe/tictactoe.css?v=3">
 </head>
 
@@ -461,6 +461,19 @@
     </main>
 
 
+    <!-- ================= CALL LOGS ================= -->
+
+    <main id="callLogsScreen" class="screen">
+        <section class="page-header">
+            <p class="small-text">Stay in touch</p>
+            <h1>Call Logs</h1>
+        </section>
+        <div id="callLogsList" class="call-logs-list">
+            <div class="empty-state compact"><p>Your call history will appear here.</p></div>
+        </div>
+    </main>
+
+
     <!-- ================= FRIENDS ================= -->
 
     <main id="friendsScreen" class="screen">
@@ -724,6 +737,15 @@
             <span><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg><i id="navMessagesBadge" class="badge-dot hidden"></i></span>
             <small>Messages</small>
 
+        </button>
+
+
+        <button
+            class="nav-item"
+            data-screen="callLogs"
+            onclick="showScreen('callLogs')">
+            <span><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.2 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.78.62 2.63a2 2 0 0 1-.45 2.11L8 9.74a16 16 0 0 0 6 6l1.28-1.28a2 2 0 0 1 2.11-.45c.85.29 1.73.5 2.63.62A2 2 0 0 1 22 16.92z"/></svg></span>
+            <small>Calls</small>
         </button>
 
 
@@ -1820,7 +1842,7 @@
 
 
 <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
-<script src="app.js?v=10"></script>
+<script src="app.js?v=11"></script>
 <script src="social.js?v=11"></script>
 <script src="messages.js?v=11"></script>
 <script src="world-chat.js?v=2"></script>
@@ -1829,7 +1851,7 @@
 <script src="pool.js?v=10"></script>
 <script src="draft.js?v=2"></script>
 <script src="games/tictactoe/tictactoe.js?v=2"></script>
-<script src="calling.js?v=1"></script>
+<script src="calling.js?v=2"></script>
 
 </body>
 </html>

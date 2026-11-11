@@ -293,6 +293,10 @@ function showScreen(screenName) {
         loadConversations();
     }
 
+    if (screenName === "callLogs" && typeof loadCallLogs === "function") {
+        loadCallLogs();
+    }
+
 
     if (screenName === "home" && typeof loadHome === "function") {
         loadHome();

@@ -7,8 +7,10 @@ function callToken() {
 
 const VYNQO_CALL = {
     socket: null, call: null, pc: null, stream: null, remoteStream: null,
-    incoming: null, ringingTimer: null, elapsedTimer: null, startedAt: null,
-    muted: false, cameraOff: false, connected: false, seen: new Set(), pendingIce: [], connectPromise: null, connectResolve: null, connectReject: null, pendingAccepted: null
+    incoming: null, ringingTimer: null, elapsedTimer: null, disconnectTimer: null, startedAt: null,
+    muted: false, cameraOff: false, connected: false, seen: new Set(), pendingIce: [],
+    connectPromise: null, connectResolve: null, connectReject: null, pendingAccepted: null,
+    mediaPromise: null, iceServers: null, offerStarted: false, pendingEnded: new Map(), creatingCall: false
 };
 
 function callEsc(value) {
@@ -25,7 +27,7 @@ function ensureCallUI() {
           <div class="vcall-actions"><button class="vcall-decline" id="vcallReject">Decline</button><button class="vcall-accept" id="vcallAccept">Accept</button></div></div>
       </div>
       <div id="vynqoActiveCall" class="vcall-active hidden" role="dialog" aria-modal="true">
-        <div class="vcall-stage"><video id="vcallRemoteVideo" autoplay playsinline></video><div id="vcallAudioAvatar" class="vcall-audio-avatar">☎</div><video id="vcallLocalVideo" autoplay muted playsinline></video>
+        <div class="vcall-stage"><video id="vcallRemoteVideo" autoplay playsinline></video><audio id="vcallRemoteAudio" autoplay></audio><div id="vcallAudioAvatar" class="vcall-audio-avatar">☎</div><video id="vcallLocalVideo" autoplay muted playsinline></video>
           <div class="vcall-top"><div><strong id="vcallPeerName">Calling...</strong><small id="vcallStatus">Connecting securely</small></div><button id="vcallMinimize" aria-label="Minimize call">−</button></div>
           <div class="vcall-controls"><button id="vcallMute">Mute</button><button id="vcallCamera">Camera off</button><button id="vcallHangup" class="vcall-hangup">End call</button></div>
         </div>
@@ -89,18 +91,27 @@ async function startVynqoCall(userId, type="audio") {
     try {
         await connectVynqoCalling();
         if (VYNQO_CALL.call || VYNQO_CALL.incoming) throw new Error("You are already handling a call");
+        VYNQO_CALL.creatingCall = true;
         const data = await callApi("/calls", "POST", {user_id: userId, type});
+        VYNQO_CALL.creatingCall = false;
         VYNQO_CALL.call = data.call;
         showActiveCall(data.call, "Ringing...");
+        refreshCallLogsIfOpen();
+        const endedEarly = VYNQO_CALL.pendingEnded.get(data.call.id);
+        if (endedEarly) {
+            VYNQO_CALL.pendingEnded.delete(data.call.id);
+            onCallEnded(endedEarly);
+            return;
+        }
         if (VYNQO_CALL.pendingAccepted?.call?.id === data.call.id) {
             const accepted = VYNQO_CALL.pendingAccepted;
             VYNQO_CALL.pendingAccepted = null;
             await onCallAccepted(accepted);
         }
-        VYNQO_CALL.ringingTimer = setTimeout(() => {
-            if (VYNQO_CALL.call && VYNQO_CALL.call.status === "ringing") endCurrentCall(true);
-        }, 60000);
-    } catch (error) { showToast(error.message); }
+    } catch (error) {
+        VYNQO_CALL.creatingCall = false;
+        showToast(error.message);
+    }
 }
 
 function showIncomingCall(call) {
@@ -109,9 +120,20 @@ function showIncomingCall(call) {
     if (VYNQO_CALL.call && ["ringing", "accepted"].includes(VYNQO_CALL.call.status)) return;
     VYNQO_CALL.incoming = call;
     ensureCallUI();
+    clearTimeout(VYNQO_CALL.ringingTimer);
+    const timeoutMs = Math.max(0, (Number(call.ring_timeout_seconds || 60) * 1000) -
+        (Date.now() - new Date(call.created_at).getTime()));
+    VYNQO_CALL.ringingTimer = setTimeout(() => {
+        if (VYNQO_CALL.incoming?.id === call.id) {
+            VYNQO_CALL.incoming = null;
+            document.getElementById("vynqoIncomingCall")?.classList.add("hidden");
+            showToast("Missed call");
+        }
+    }, timeoutMs);
     document.getElementById("vcallIncomingName").textContent = call.other_user.full_name;
     document.getElementById("vcallIncomingType").textContent = call.type.toUpperCase();
     document.getElementById("vynqoIncomingCall").classList.remove("hidden");
+    refreshCallLogsIfOpen();
     if ("Notification" in window && Notification.permission === "granted" && document.hidden) {
         try { new Notification("Incoming Vynqo call", {body: call.other_user.full_name + " is calling you"}); } catch (_) {}
     }
@@ -120,9 +142,13 @@ function showIncomingCall(call) {
 async function acceptIncomingCall() {
     const call = VYNQO_CALL.incoming;
     if (!call) return;
+    // Publish the call locally before the HTTP request completes. The server may
+    // relay the caller's SDP offer immediately after committing the acceptance.
+    VYNQO_CALL.call = {...call, status:"ringing", direction:"incoming"};
     try {
+        clearTimeout(VYNQO_CALL.ringingTimer);
         await callApi(`/calls/${call.id}/accept`, "POST");
-        VYNQO_CALL.call = {...call, status:"accepted"};
+        VYNQO_CALL.call.status = "accepted";
         VYNQO_CALL.incoming = null;
         document.getElementById("vynqoIncomingCall").classList.add("hidden");
         showActiveCall(VYNQO_CALL.call, "Connecting...");
@@ -130,14 +156,23 @@ async function acceptIncomingCall() {
         // The server's call_accepted event can arrive before this HTTP response.
         // Starting media here as well closes that race; onCallAccepted is guarded.
         await onCallAccepted({call: VYNQO_CALL.call});
-    } catch (error) { showToast(error.message); document.getElementById("vynqoIncomingCall").classList.add("hidden"); }
+    } catch (error) {
+        showToast(error.message);
+        cleanupCall();
+        document.getElementById("vynqoIncomingCall").classList.add("hidden");
+    }
 }
 
 async function rejectIncomingCall() {
     const call = VYNQO_CALL.incoming;
-    VYNQO_CALL.incoming = null;
+    clearTimeout(VYNQO_CALL.ringingTimer);
     document.getElementById("vynqoIncomingCall").classList.add("hidden");
-    if (call) { try { await callApi(`/calls/${call.id}/reject`, "POST"); } catch (_) {} }
+    if (call) {
+        try { await callApi(`/calls/${call.id}/reject`, "POST"); }
+        catch (error) { showToast(error.message); }
+        if (VYNQO_CALL.incoming?.id === call.id) VYNQO_CALL.incoming = null;
+        refreshCallLogsIfOpen();
+    }
 }
 
 function showActiveCall(call, status) {
@@ -147,37 +182,143 @@ function showActiveCall(call, status) {
     document.getElementById("vynqoActiveCall").classList.remove("hidden");
     document.getElementById("vynqoActiveCall").classList.remove("is-minimized");
     document.getElementById("vcallAudioAvatar").classList.toggle("hidden", call.type === "video");
+    document.getElementById("vcallRemoteVideo").classList.toggle("hidden", call.type !== "video");
 }
 
 async function getCallMedia(type) {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error("Camera and microphone require HTTPS or localhost.");
-    VYNQO_CALL.stream = await navigator.mediaDevices.getUserMedia({audio:true, video:type === "video"});
-    document.getElementById("vcallLocalVideo").srcObject = type === "video" ? VYNQO_CALL.stream : null;
-    document.getElementById("vcallLocalVideo").classList.toggle("hidden", type !== "video");
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("Camera and microphone require HTTPS or localhost.");
+    }
+    const callId = VYNQO_CALL.call?.id;
+    let stream;
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+            video: type === "video" ? { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" } : false
+        });
+    } catch (error) {
+        if (error.name === "NotAllowedError" || error.name === "PermissionDeniedError") {
+            throw new Error("Allow camera and microphone access in your browser, then try again.");
+        }
+        if (error.name === "NotFoundError" || error.name === "DevicesNotFoundError") {
+            throw new Error("A required camera or microphone could not be found.");
+        }
+        if (error.name === "NotReadableError" || error.name === "TrackStartError") {
+            throw new Error("Your camera or microphone is already being used by another app.");
+        }
+        throw new Error(error.message || "Could not access your camera and microphone.");
+    }
+    if (!callId || VYNQO_CALL.call?.id !== callId) {
+        stream.getTracks().forEach(track => track.stop());
+        return null;
+    }
+    VYNQO_CALL.stream = stream;
+    const local = document.getElementById("vcallLocalVideo");
+    local.srcObject = type === "video" ? stream : null;
+    local.classList.toggle("hidden", type !== "video");
+    if (type === "video") local.play().catch(() => {});
+    return stream;
 }
 
-function createPeerConnection() {
-    const pc = new RTCPeerConnection({iceServers:[{urls:"stun:stun.l.google.com:19302"}]});
+async function getCallIceServers() {
+    if (VYNQO_CALL.iceServers) return VYNQO_CALL.iceServers;
+    try {
+        const data = await callApi("/calls/config");
+        VYNQO_CALL.iceServers = data.ice_servers;
+    } catch (_) {
+        VYNQO_CALL.iceServers = [
+            { urls: "stun:stun.l.google.com:19302" },
+            { urls: "stun:stun.cloudflare.com:3478" }
+        ];
+    }
+    return VYNQO_CALL.iceServers;
+}
+
+async function ensureCallPeerConnection() {
+    if (VYNQO_CALL.pc) return VYNQO_CALL.pc;
+    const callId = VYNQO_CALL.call?.id;
+    if (!callId) return null;
+    if (!VYNQO_CALL.mediaPromise) {
+        const pending = (async () => {
+            if (!VYNQO_CALL.stream) {
+                const stream = await getCallMedia(VYNQO_CALL.call.type);
+                if (!stream) return null;
+            }
+            if (VYNQO_CALL.call?.id !== callId) {
+                VYNQO_CALL.stream?.getTracks().forEach(track => track.stop());
+                VYNQO_CALL.stream = null;
+                return null;
+            }
+            const iceServers = await getCallIceServers();
+            if (VYNQO_CALL.call?.id !== callId) {
+                VYNQO_CALL.stream?.getTracks().forEach(track => track.stop());
+                VYNQO_CALL.stream = null;
+                return null;
+            }
+            if (!VYNQO_CALL.pc) createPeerConnection(iceServers);
+            return VYNQO_CALL.call?.id === callId ? VYNQO_CALL.pc : null;
+        })();
+        VYNQO_CALL.mediaPromise = pending;
+        pending.finally(() => {
+            if (VYNQO_CALL.mediaPromise === pending) VYNQO_CALL.mediaPromise = null;
+        });
+    }
+    return VYNQO_CALL.mediaPromise;
+}
+
+function createPeerConnection(iceServers) {
+    if (VYNQO_CALL.pc) return VYNQO_CALL.pc;
+    const pc = new RTCPeerConnection({ iceServers, iceCandidatePoolSize: 10, bundlePolicy: "max-bundle" });
     VYNQO_CALL.pc = pc;
     VYNQO_CALL.remoteStream = new MediaStream();
     pc.ontrack = event => {
-        event.streams[0].getTracks().forEach(track => VYNQO_CALL.remoteStream.addTrack(track));
+        if (event.track && !VYNQO_CALL.remoteStream.getTracks().some(t => t.id === event.track.id)) {
+            VYNQO_CALL.remoteStream.addTrack(event.track);
+        }
+        const stream = event.streams?.[0] || VYNQO_CALL.remoteStream;
         const video = document.getElementById("vcallRemoteVideo");
-        video.srcObject = VYNQO_CALL.remoteStream;
-        video.classList.toggle("hidden", VYNQO_CALL.call?.type !== "video");
+        const audio = document.getElementById("vcallRemoteAudio");
+        if (VYNQO_CALL.call?.type === "video") {
+            video.srcObject = stream;
+            video.classList.remove("hidden");
+            audio.srcObject = null;
+            video.play().catch(error => console.warn("Remote video autoplay was blocked", error));
+        } else {
+            audio.srcObject = stream;
+            audio.play().catch(error => console.warn("Remote audio autoplay was blocked", error));
+        }
         document.getElementById("vcallAudioAvatar").classList.toggle("hidden", VYNQO_CALL.call?.type === "video");
     };
     pc.onicecandidate = event => {
         if (event.candidate && VYNQO_CALL.socket && VYNQO_CALL.call) {
-            VYNQO_CALL.socket.emit("rtc_signal", {call_id:VYNQO_CALL.call.id, kind:"ice", payload:event.candidate.toJSON()});
+            VYNQO_CALL.socket.emit("rtc_signal", {
+                call_id: VYNQO_CALL.call.id, kind: "ice", payload: event.candidate.toJSON()
+            });
         }
     };
     pc.onconnectionstatechange = () => {
         const status = document.getElementById("vcallStatus");
-        if (status && pc.connectionState === "connected") {
-            status.textContent = "Connected";
-            if (!VYNQO_CALL.startedAt) { VYNQO_CALL.startedAt = Date.now(); startCallDuration(); }
-        } else if (status && ["failed", "disconnected"].includes(pc.connectionState)) status.textContent = "Connection interrupted";
+        if (pc.connectionState === "connected") {
+            clearTimeout(VYNQO_CALL.disconnectTimer);
+            if (status) status.textContent = "Connected";
+            if (!VYNQO_CALL.startedAt) {
+                VYNQO_CALL.startedAt = Date.now();
+                startCallDuration();
+            }
+        } else if (pc.connectionState === "disconnected") {
+            if (status) status.textContent = "Connection interrupted — reconnecting…";
+            clearTimeout(VYNQO_CALL.disconnectTimer);
+            VYNQO_CALL.disconnectTimer = setTimeout(() => {
+                if (VYNQO_CALL.pc === pc && pc.connectionState === "disconnected") {
+                    showToast("Call connection was lost");
+                    endCurrentCall();
+                }
+            }, 12000);
+        } else if (pc.connectionState === "failed") {
+            if (status) status.textContent = "Connection failed";
+            showToast("Could not establish the call connection");
+            endCurrentCall();
+        }
     };
     VYNQO_CALL.stream.getTracks().forEach(track => pc.addTrack(track, VYNQO_CALL.stream));
     return pc;
@@ -186,40 +327,62 @@ function createPeerConnection() {
 async function onCallAccepted(data) {
     if (!VYNQO_CALL.call) { VYNQO_CALL.pendingAccepted = data; return; }
     if (data.call.id !== VYNQO_CALL.call.id) return;
-    if (VYNQO_CALL.stream || VYNQO_CALL.pc) return;
+    if (VYNQO_CALL.call.status === "ringing") VYNQO_CALL.call.status = "accepted";
     clearTimeout(VYNQO_CALL.ringingTimer);
-    VYNQO_CALL.call.status = "accepted";
     showActiveCall(VYNQO_CALL.call, "Starting call...");
     try {
-        await getCallMedia(VYNQO_CALL.call.type);
-        const pc = createPeerConnection();
-        if (VYNQO_CALL.call.direction === "outgoing") {
+        const callId = VYNQO_CALL.call.id;
+        const pc = await ensureCallPeerConnection();
+        if (!pc || VYNQO_CALL.call?.id !== callId) return;
+        if (VYNQO_CALL.call.direction === "outgoing" && !VYNQO_CALL.offerStarted) {
+            VYNQO_CALL.offerStarted = true;
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
-            VYNQO_CALL.socket.emit("rtc_signal", {call_id:VYNQO_CALL.call.id, kind:"offer", payload:pc.localDescription.toJSON()});
+            VYNQO_CALL.socket.emit("rtc_signal", {
+                call_id: VYNQO_CALL.call.id, kind: "offer",
+                payload: pc.localDescription.toJSON()
+            });
         }
-    } catch (error) { showToast(error.message); await endCurrentCall(); }
+    } catch (error) {
+        showToast(error.message);
+        await endCurrentCall();
+    }
+}
+
+async function applyPendingIceCandidates() {
+    if (!VYNQO_CALL.pc?.remoteDescription) return;
+    const candidates = VYNQO_CALL.pendingIce.splice(0);
+    for (const candidate of candidates) {
+        try { await VYNQO_CALL.pc.addIceCandidate(candidate); }
+        catch (error) { console.warn("Unable to apply queued ICE candidate", error); }
+    }
 }
 
 async function onRtcSignal(data) {
     if (!VYNQO_CALL.call || data.call_id !== VYNQO_CALL.call.id) return;
     try {
-        if (!VYNQO_CALL.pc && data.kind === "offer") {
-            await getCallMedia(VYNQO_CALL.call.type);
-            createPeerConnection();
+        if (data.kind === "ice" && data.payload && !VYNQO_CALL.pc) {
+            VYNQO_CALL.pendingIce.push(data.payload);
+            return;
         }
-        if (!VYNQO_CALL.pc) return;
         if (data.kind === "offer") {
-            await VYNQO_CALL.pc.setRemoteDescription(data.payload);
-            for (const candidate of VYNQO_CALL.pendingIce.splice(0)) await VYNQO_CALL.pc.addIceCandidate(candidate);
-            const answer = await VYNQO_CALL.pc.createAnswer();
-            await VYNQO_CALL.pc.setLocalDescription(answer);
-            VYNQO_CALL.socket.emit("rtc_signal", {call_id:VYNQO_CALL.call.id, kind:"answer", payload:VYNQO_CALL.pc.localDescription.toJSON()});
+            const callId = VYNQO_CALL.call.id;
+            const pc = await ensureCallPeerConnection();
+            if (!pc || VYNQO_CALL.call?.id !== callId || pc.signalingState !== "stable") return;
+            await pc.setRemoteDescription(data.payload);
+            await applyPendingIceCandidates();
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            VYNQO_CALL.socket.emit("rtc_signal", {
+                call_id: VYNQO_CALL.call.id, kind: "answer",
+                payload: pc.localDescription.toJSON()
+            });
         } else if (data.kind === "answer") {
+            if (!VYNQO_CALL.pc) return;
             await VYNQO_CALL.pc.setRemoteDescription(data.payload);
-            for (const candidate of VYNQO_CALL.pendingIce.splice(0)) await VYNQO_CALL.pc.addIceCandidate(candidate);
+            await applyPendingIceCandidates();
         } else if (data.kind === "ice" && data.payload) {
-            if (VYNQO_CALL.pc.remoteDescription) await VYNQO_CALL.pc.addIceCandidate(data.payload);
+            if (VYNQO_CALL.pc?.remoteDescription) await VYNQO_CALL.pc.addIceCandidate(data.payload);
             else VYNQO_CALL.pendingIce.push(data.payload);
         }
     } catch (error) { console.error("WebRTC signalling error", error); }
@@ -256,21 +419,43 @@ async function endCurrentCall(silent=false) {
     cleanupCall();
 }
 function onCallEnded(data) {
-    if ((VYNQO_CALL.call && data.call_id === VYNQO_CALL.call.id) || (VYNQO_CALL.incoming && data.call_id === VYNQO_CALL.incoming.id)) {
-        cleanupCall();
-        showToast(data.status === "rejected" ? "Call declined" : "Call ended");
+    const matchesCurrent = VYNQO_CALL.call && data.call_id === VYNQO_CALL.call.id;
+    const matchesIncoming = VYNQO_CALL.incoming && data.call_id === VYNQO_CALL.incoming.id;
+    if (!matchesCurrent && !matchesIncoming) {
+        // The recipient can accept/decline before the caller's create-call HTTP
+        // response reaches the caller. Preserve that terminal event for the race.
+        if (VYNQO_CALL.creatingCall && data?.call_id) {
+            VYNQO_CALL.pendingEnded.set(data.call_id, data);
+        } else {
+            refreshCallLogsIfOpen();
+        }
+        return;
     }
+    cleanupCall();
+    showToast(data.status === "rejected" ? "Call declined" :
+        data.status === "missed" ? "No answer — call missed" :
+        data.status === "cancelled" ? "Call cancelled" : "Call ended");
+    refreshCallLogsIfOpen();
 }
 function cleanupCall() {
     clearTimeout(VYNQO_CALL.ringingTimer); clearInterval(VYNQO_CALL.elapsedTimer);
+    clearTimeout(VYNQO_CALL.disconnectTimer);
     VYNQO_CALL.stream?.getTracks().forEach(t => t.stop());
     VYNQO_CALL.pc?.close();
     VYNQO_CALL.stream = null; VYNQO_CALL.pc = null; VYNQO_CALL.remoteStream = null;
-    VYNQO_CALL.call = null; VYNQO_CALL.incoming = null; VYNQO_CALL.startedAt = null; VYNQO_CALL.pendingIce = [];
+    VYNQO_CALL.call = null; VYNQO_CALL.incoming = null; VYNQO_CALL.startedAt = null;
+    VYNQO_CALL.pendingIce = []; VYNQO_CALL.mediaPromise = null; VYNQO_CALL.offerStarted = false;
+    VYNQO_CALL.iceServers = null; VYNQO_CALL.muted = false; VYNQO_CALL.cameraOff = false;
+    const muteButton = document.getElementById("vcallMute");
+    const cameraButton = document.getElementById("vcallCamera");
+    if (muteButton) muteButton.textContent = "Mute";
+    if (cameraButton) cameraButton.textContent = "Camera off";
     document.getElementById("vynqoIncomingCall")?.classList.add("hidden");
     document.getElementById("vynqoActiveCall")?.classList.add("hidden");
     const remote = document.getElementById("vcallRemoteVideo"); if (remote) remote.srcObject = null;
     const local = document.getElementById("vcallLocalVideo"); if (local) local.srcObject = null;
+    const audio = document.getElementById("vcallRemoteAudio"); if (audio) audio.srcObject = null;
+    refreshCallLogsIfOpen();
 }
 
 async function restoreActiveCall() {
@@ -283,10 +468,64 @@ async function restoreActiveCall() {
     } catch (_) {}
 }
 
+
+async function loadCallLogs() {
+    const container = document.getElementById("callLogsList");
+    if (!container) return;
+    container.innerHTML = '<div class="empty-state compact"><p>Loading call history…</p></div>';
+    try {
+        const data = await callApi("/calls/history?limit=100");
+        renderCallLogs(data.calls || []);
+    } catch (error) {
+        container.innerHTML = '<div class="empty-state compact"><h3>Could not load calls</h3><p>Check your connection and try again.</p><button class="pbtn primary" onclick="loadCallLogs()">Try again</button></div>';
+    }
+}
+
+function renderCallLogs(calls) {
+    const container = document.getElementById("callLogsList");
+    if (!container) return;
+    if (!calls.length) {
+        container.innerHTML = '<div class="empty-state"><div class="empty-icon">☎</div><h3>No calls yet</h3><p>Your incoming and outgoing calls will appear here.</p></div>';
+        return;
+    }
+    container.innerHTML = calls.map(call => {
+        const person = call.other_user || {};
+        const name = callEsc(person.full_name || "Vynqo user");
+        const avatar = person.avatar_url
+            ? `<img src="${callEsc(person.avatar_url)}" alt="">`
+            : `<span>${callEsc(name.charAt(0).toUpperCase())}</span>`;
+        const status = call.status === "ended" ? "Completed" :
+            call.status === "rejected" ? "Declined" :
+            call.status === "missed" ? (call.direction === "incoming" ? "Missed" : "Unanswered") :
+            call.status === "cancelled" ? "Cancelled" : callEsc(call.status);
+        const direction = call.direction === "incoming" ? "Incoming" : "Outgoing";
+        const icon = call.direction === "incoming" ? "↙" : "↗";
+        const duration = call.duration_seconds == null ? "" :
+            `${Math.floor(call.duration_seconds / 60)}:${String(call.duration_seconds % 60).padStart(2, "0")}`;
+        const date = call.created_at ? new Date(call.created_at).toLocaleString() : "";
+        return `<article class="call-log-row">
+            <div class="call-log-avatar">${avatar}</div>
+            <div class="call-log-main">
+                <strong>${name}</strong>
+                <span class="call-log-meta ${call.status === "missed" || call.status === "rejected" ? "is-missed" : ""}">${icon} ${direction} · ${call.type === "video" ? "Video" : "Audio"} · ${status}${duration ? ` · ${duration}` : ""}</span>
+                <small>${callEsc(date)}</small>
+            </div>
+            <div class="call-log-actions">
+                <button type="button" aria-label="Audio call ${name}" title="Audio call" onclick="startVynqoCall(${Number(person.id)}, 'audio')">☎</button>
+                <button type="button" aria-label="Video call ${name}" title="Video call" onclick="startVynqoCall(${Number(person.id)}, 'video')">▣</button>
+            </div>
+        </article>`;
+    }).join("");
+}
+
+function refreshCallLogsIfOpen() {
+    if (document.getElementById("callLogsScreen")?.classList.contains("active")) loadCallLogs();
+}
+
 function onCallingAppOpened() { ensureCallUI(); connectVynqoCalling(); }
 function onCallingLoggedOut() {
     if (VYNQO_CALL.socket) VYNQO_CALL.socket.disconnect();
-    VYNQO_CALL.socket = null; VYNQO_CALL.connected = false; VYNQO_CALL.connectPromise = null; VYNQO_CALL.connectResolve = null; VYNQO_CALL.connectReject = null; VYNQO_CALL.pendingAccepted = null; cleanupCall(); VYNQO_CALL.seen.clear();
+    VYNQO_CALL.socket = null; VYNQO_CALL.connected = false; VYNQO_CALL.connectPromise = null; VYNQO_CALL.connectResolve = null; VYNQO_CALL.connectReject = null; VYNQO_CALL.pendingAccepted = null; VYNQO_CALL.pendingEnded.clear(); VYNQO_CALL.creatingCall = false; cleanupCall(); VYNQO_CALL.seen.clear();
 }
 
 // Used by friend/message UI without coupling calling to a particular screen.
