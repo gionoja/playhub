@@ -1,4 +1,4 @@
-"""Vynqo's in-app audio/video call invitations and WebRTC signalling."""
+"""Vynqo's in-app audio/video call invitations, lifecycle and WebRTC signalling."""
 from datetime import datetime, timedelta
 import uuid
 
@@ -10,9 +10,11 @@ from sqlalchemy import and_, or_
 from auth import TOKEN_MAX_AGE, _password_stamp, _serializer, login_required
 from database import db
 from models import AuthSession, CallSession, Friendship, Profile, User, UserBlock
+from profiles import avatar_url
 
 calling_bp = Blueprint("calling", __name__)
 socketio = None
+DEFAULT_RING_TIMEOUT_SECONDS = 60
 
 
 def init_calling_socket(socket_server):
@@ -56,6 +58,8 @@ def init_calling_socket(socket_server):
         payload = data.get("payload")
         if not isinstance(payload, dict):
             return
+        # Every authenticated socket joins its own room. Delivering signalling to
+        # that room avoids relying on both clients joining a second room in time.
         emit("rtc_signal", {"call_id": call.id, "from_user_id": user_id,
                              "kind": kind, "payload": payload}, room=_user_room(target_id))
 
@@ -104,10 +108,67 @@ def _are_friends(a, b):
     return Friendship.query.filter_by(user_low_id=low, user_high_id=high).first() is not None
 
 
+def _ring_timeout_seconds():
+    try:
+        return max(10, int(current_app.config.get(
+            "CALL_RING_TIMEOUT_SECONDS", DEFAULT_RING_TIMEOUT_SECONDS)))
+    except (TypeError, ValueError):
+        return DEFAULT_RING_TIMEOUT_SECONDS
+
+
+def _emit_call_ended(call, status):
+    payload = {"call_id": call.id, "status": status}
+    _emit_user(call.caller_id, "call_ended", payload)
+    _emit_user(call.callee_id, "call_ended", payload)
+
+
+def _expire_call(call):
+    """Atomically transition a stale ringing call once; safe to call repeatedly."""
+    if call.status != "ringing":
+        return False
+    if call.created_at > datetime.utcnow() - timedelta(seconds=_ring_timeout_seconds()):
+        return False
+    changed = CallSession.query.filter_by(id=call.id, status="ringing").update(
+        {"status": "missed", "ended_at": datetime.utcnow()}, synchronize_session=False)
+    if changed:
+        db.session.commit()
+        db.session.refresh(call)
+        _emit_call_ended(call, "missed")
+        return True
+    db.session.rollback()
+    return False
+
+
+def _expire_stale_calls():
+    cutoff = datetime.utcnow() - timedelta(seconds=_ring_timeout_seconds())
+    stale = CallSession.query.filter(
+        CallSession.status == "ringing", CallSession.created_at <= cutoff).all()
+    for call in stale:
+        _expire_call(call)
+
+
+def _schedule_ring_timeout(call_id):
+    """Server-side timeout survives recipient refreshes while this server is running."""
+    app = current_app._get_current_object()
+    seconds = _ring_timeout_seconds()
+
+    def expire_later():
+        socketio.sleep(seconds)
+        with app.app_context():
+            call = db.session.get(CallSession, call_id)
+            if call:
+                _expire_call(call)
+
+    if socketio:
+        socketio.start_background_task(expire_later)
+
+
 def _person(user):
     profile = Profile.query.filter_by(user_id=user.id).first()
+    photo = avatar_url(user.id) if profile and profile.avatar_filename else None
     return {"id": user.id, "full_name": user.full_name, "username": user.username,
-            "avatar_url": None, "last_seen": profile.last_seen.isoformat() + "Z" if profile and profile.last_seen else None}
+            "avatar_url": photo,
+            "last_seen": profile.last_seen.isoformat() + "Z" if profile and profile.last_seen else None}
 
 
 def _call_view(call, me_id):
@@ -116,6 +177,10 @@ def _call_view(call, me_id):
             "direction": "outgoing" if me_id == call.caller_id else "incoming",
             "created_at": call.created_at.isoformat() + "Z",
             "answered_at": call.answered_at.isoformat() + "Z" if call.answered_at else None,
+            "ended_at": call.ended_at.isoformat() + "Z" if call.ended_at else None,
+            "ring_timeout_seconds": _ring_timeout_seconds(),
+            "duration_seconds": max(0, int((call.ended_at - call.answered_at).total_seconds()))
+                if call.answered_at and call.ended_at else None,
             "other_user": _person(other)}
 
 
@@ -124,20 +189,43 @@ def _emit_user(user_id, event, payload):
         socketio.emit(event, payload, room=_user_room(user_id))
 
 
-def _finish(call, status):
-    call.status = status
-    call.ended_at = datetime.utcnow()
+def _finish(call, status, allowed_statuses=("ringing", "accepted")):
+    now = datetime.utcnow()
+    changed = CallSession.query.filter(
+        CallSession.id == call.id,
+        CallSession.status.in_(allowed_statuses)
+    ).update({"status": status, "ended_at": now}, synchronize_session=False)
+    if not changed:
+        db.session.rollback()
+        return jsonify({"message": "This call has already ended"}), 409
     db.session.commit()
-    other_id = call.callee_id if g.me_id == call.caller_id else call.caller_id
-    view = _call_view(call, g.me_id)
-    _emit_user(other_id, "call_ended", {"call_id": call.id, "status": status})
-    _emit_user(g.me_id, "call_ended", {"call_id": call.id, "status": status})
-    return jsonify({"call": view})
+    db.session.refresh(call)
+    _emit_call_ended(call, status)
+    return jsonify({"call": _call_view(call, g.me_id)})
+
+
+@calling_bp.route("/calls/config")
+@login_required
+def call_config():
+    """Expose public ICE configuration; TURN credentials are supplied via server env."""
+    import os
+    servers = [
+        {"urls": "stun:stun.l.google.com:19302"},
+        {"urls": "stun:stun.cloudflare.com:3478"},
+    ]
+    turn_url = os.getenv("TURN_URL")
+    turn_username = os.getenv("TURN_USERNAME")
+    turn_credential = os.getenv("TURN_CREDENTIAL")
+    if turn_url and turn_username and turn_credential:
+        servers.append({"urls": turn_url, "username": turn_username,
+                        "credential": turn_credential})
+    return jsonify({"ice_servers": servers})
 
 
 @calling_bp.route("/calls", methods=["POST"])
 @login_required
 def create_call():
+    _expire_stale_calls()
     data = request.get_json(silent=True) or {}
     target_id = data.get("user_id")
     call_type = data.get("type", "audio")
@@ -156,12 +244,8 @@ def create_call():
         return jsonify({"message": "Calling is unavailable because one of you has blocked the other"}), 403
     if not _are_friends(g.me_id, target_id):
         return jsonify({"message": "You can only call your Vynqo friends"}), 403
-    cutoff = datetime.utcnow() - timedelta(seconds=90)
     busy = CallSession.query.filter(
-        or_(
-            CallSession.status == "accepted",
-            and_(CallSession.status == "ringing", CallSession.created_at >= cutoff),
-        ),
+        or_(CallSession.status == "accepted", CallSession.status == "ringing"),
         or_(CallSession.caller_id.in_([g.me_id, target_id]),
             CallSession.callee_id.in_([g.me_id, target_id])),
     ).first()
@@ -171,23 +255,33 @@ def create_call():
                        call_type=call_type, status="ringing")
     db.session.add(call)
     db.session.commit()
-    payload = {"call": _call_view(call, target_id)}
-    _emit_user(target_id, "incoming_call", payload["call"])
+    _emit_user(target_id, "incoming_call", _call_view(call, target_id))
+    _schedule_ring_timeout(call.id)
     return jsonify({"call": _call_view(call, g.me_id)}), 201
 
 
 @calling_bp.route("/calls/active")
 @login_required
 def active_call():
+    _expire_stale_calls()
     call = CallSession.query.filter(CallSession.status.in_(["ringing", "accepted"]),
         or_(CallSession.caller_id == g.me_id, CallSession.callee_id == g.me_id)
     ).order_by(CallSession.created_at.desc()).first()
-    if call and call.status == "ringing" and call.created_at < datetime.utcnow() - timedelta(seconds=60):
-        call.status = "missed"
-        call.ended_at = datetime.utcnow()
-        db.session.commit()
-        call = None
     return jsonify({"call": _call_view(call, g.me_id) if call else None})
+
+
+@calling_bp.route("/calls/history")
+@login_required
+def call_history():
+    _expire_stale_calls()
+    try:
+        limit = min(100, max(1, int(request.args.get("limit", 50))))
+    except (TypeError, ValueError):
+        limit = 50
+    calls = CallSession.query.filter(
+        or_(CallSession.caller_id == g.me_id, CallSession.callee_id == g.me_id)
+    ).order_by(CallSession.created_at.desc()).limit(limit).all()
+    return jsonify({"calls": [_call_view(call, g.me_id) for call in calls]})
 
 
 def _participant_call(call_id):
@@ -200,16 +294,26 @@ def _participant_call(call_id):
 @calling_bp.route("/calls/<call_id>/accept", methods=["POST"])
 @login_required
 def accept_call(call_id):
+    _expire_stale_calls()
     call, error = _participant_call(call_id)
     if error: return error
     if call.callee_id != g.me_id or call.status != "ringing":
         return jsonify({"message": "This call can no longer be accepted"}), 409
     if _blocked(call.caller_id, call.callee_id) or not _are_friends(call.caller_id, call.callee_id):
         call.status = "cancelled"; call.ended_at = datetime.utcnow(); db.session.commit()
+        _emit_call_ended(call, "cancelled")
         return jsonify({"message": "This call is no longer available"}), 403
-    call.status = "accepted"
-    call.answered_at = datetime.utcnow()
+    now = datetime.utcnow()
+    changed = CallSession.query.filter(
+        CallSession.id == call.id,
+        CallSession.status == "ringing",
+        CallSession.created_at > now - timedelta(seconds=_ring_timeout_seconds())
+    ).update({"status": "accepted", "answered_at": now}, synchronize_session=False)
+    if not changed:
+        db.session.rollback()
+        return jsonify({"message": "This call has expired and can no longer be accepted"}), 409
     db.session.commit()
+    db.session.refresh(call)
     _emit_user(call.caller_id, "call_accepted", {"call": _call_view(call, call.caller_id)})
     _emit_user(call.callee_id, "call_accepted", {"call": _call_view(call, call.callee_id)})
     return jsonify({"call": _call_view(call, g.me_id)})
@@ -222,7 +326,7 @@ def reject_call(call_id):
     if error: return error
     if call.callee_id != g.me_id or call.status != "ringing":
         return jsonify({"message": "This call can no longer be declined"}), 409
-    return _finish(call, "rejected")
+    return _finish(call, "rejected", allowed_statuses=("ringing",))
 
 
 @calling_bp.route("/calls/<call_id>/cancel", methods=["POST"])
@@ -232,7 +336,7 @@ def cancel_call(call_id):
     if error: return error
     if call.caller_id != g.me_id or call.status != "ringing":
         return jsonify({"message": "This outgoing call can no longer be cancelled"}), 409
-    return _finish(call, "cancelled")
+    return _finish(call, "cancelled", allowed_statuses=("ringing",))
 
 
 @calling_bp.route("/calls/<call_id>/end", methods=["POST"])
@@ -240,6 +344,4 @@ def cancel_call(call_id):
 def end_call(call_id):
     call, error = _participant_call(call_id)
     if error: return error
-    if call.status not in ("ringing", "accepted"):
-        return jsonify({"message": "This call has already ended"}), 409
     return _finish(call, "ended")

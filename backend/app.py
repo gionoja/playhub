@@ -54,6 +54,10 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 # Largest request accepted. Photos are limited to 5 MB and videos to 50 MB by their
 # own checks; this is only the outer ceiling.
 app.config["MAX_CONTENT_LENGTH"] = 60 * 1024 * 1024
+try:
+    app.config["CALL_RING_TIMEOUT_SECONDS"] = max(10, int(os.getenv("CALL_RING_TIMEOUT_SECONDS", "60")))
+except ValueError:
+    app.config["CALL_RING_TIMEOUT_SECONDS"] = 60
 
 # Signs login tokens. Set SECRET_KEY in .env so people stay logged in after a restart.
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY") or secrets.token_hex(32)
