@@ -5,3 +5,4 @@ Flask-Mail
 python-dotenv
 Pillow
 Flask-SocketIO
+livekit-api>=1.2.1

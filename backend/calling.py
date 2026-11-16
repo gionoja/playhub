@@ -1,6 +1,7 @@
-"""Vynqo's in-app audio/video call invitations, lifecycle and WebRTC signalling."""
+"""Vynqo call invitations and lifecycle, with LiveKit handling realtime media."""
 from datetime import datetime, timedelta
 import uuid
+import os
 
 from flask import Blueprint, current_app, g, jsonify, request
 from flask_socketio import emit, join_room
@@ -42,35 +43,6 @@ def init_calling_socket(socket_server):
         join_room(_user_room(user.id))
         emit("call_socket_ready", {"ok": True})
 
-    @socket_server.on("rtc_signal")
-    def relay_rtc_signal(data):
-        data = data if isinstance(data, dict) else {}
-        user_id = _socket_user_id()
-        call = _get_call(data.get("call_id"))
-        if not user_id or not call or call.status != "accepted":
-            return
-        if user_id not in (call.caller_id, call.callee_id):
-            return
-        target_id = call.callee_id if user_id == call.caller_id else call.caller_id
-        kind = data.get("kind")
-        if kind not in ("offer", "answer", "ice"):
-            return
-        payload = data.get("payload")
-        if not isinstance(payload, dict):
-            return
-        # Every authenticated socket joins its own room. Delivering signalling to
-        # that room avoids relying on both clients joining a second room in time.
-        emit("rtc_signal", {"call_id": call.id, "from_user_id": user_id,
-                             "kind": kind, "payload": payload}, room=_user_room(target_id))
-
-    @socket_server.on("call_client_ready")
-    def rejoin_call_room(data):
-        user_id = _socket_user_id()
-        call = _get_call((data or {}).get("call_id")) if isinstance(data, dict) else None
-        if user_id and call and call.status == "accepted" and user_id in (call.caller_id, call.callee_id):
-            join_room(_call_room(call.id))
-            return {"ok": True}
-        return {"ok": False}
 
 
 def _socket_user_id():
@@ -80,10 +52,6 @@ def _socket_user_id():
 
 def _user_room(user_id):
     return f"vynqo_user_{user_id}"
-
-
-def _call_room(call_id):
-    return f"vynqo_call_{call_id}"
 
 
 def _get_call(call_id):
@@ -204,22 +172,46 @@ def _finish(call, status, allowed_statuses=("ringing", "accepted")):
     return jsonify({"call": _call_view(call, g.me_id)})
 
 
-@calling_bp.route("/calls/config")
+@calling_bp.route("/calls/<call_id>/livekit-token", methods=["POST"])
 @login_required
-def call_config():
-    """Expose public ICE configuration; TURN credentials are supplied via server env."""
-    import os
-    servers = [
-        {"urls": "stun:stun.l.google.com:19302"},
-        {"urls": "stun:stun.cloudflare.com:3478"},
-    ]
-    turn_url = os.getenv("TURN_URL")
-    turn_username = os.getenv("TURN_USERNAME")
-    turn_credential = os.getenv("TURN_CREDENTIAL")
-    if turn_url and turn_username and turn_credential:
-        servers.append({"urls": turn_url, "username": turn_username,
-                        "credential": turn_credential})
-    return jsonify({"ice_servers": servers})
+def livekit_call_token(call_id):
+    """Issue a short-lived LiveKit token only to an accepted call participant."""
+    call, error = _participant_call(call_id)
+    if error:
+        return error
+    if call.status != "accepted":
+        return jsonify({"message": "Accept the call before joining its media room"}), 409
+    if _blocked(call.caller_id, call.callee_id) or not _are_friends(call.caller_id, call.callee_id):
+        return jsonify({"message": "This call is no longer available"}), 403
+
+    livekit_url = os.getenv("LIVEKIT_URL")
+    api_key = os.getenv("LIVEKIT_API_KEY")
+    api_secret = os.getenv("LIVEKIT_API_SECRET")
+    if not all((livekit_url, api_key, api_secret)):
+        current_app.logger.error("LiveKit credentials are not configured")
+        return jsonify({"message": "LiveKit calling is not configured on the server"}), 503
+
+    try:
+        from livekit import api
+        participant = db.session.get(User, g.me_id)
+        token = (
+            api.AccessToken(api_key, api_secret)
+            .with_identity(f"playhub-user-{g.me_id}")
+            .with_name(participant.full_name if participant else f"User {g.me_id}")
+            .with_ttl(timedelta(minutes=10))
+            .with_grants(api.VideoGrants(
+                room_join=True,
+                room=call.id,
+                can_publish=True,
+                can_subscribe=True,
+            ))
+            .to_jwt()
+        )
+    except Exception:
+        current_app.logger.exception("Could not create LiveKit access token")
+        return jsonify({"message": "Could not prepare the secure call connection"}), 500
+
+    return jsonify({"server_url": livekit_url, "participant_token": token})
 
 
 @calling_bp.route("/calls", methods=["POST"])
